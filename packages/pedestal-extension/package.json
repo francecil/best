@@ -1,0 +1,37 @@
+{
+  "name": "pedestal-extension",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "description": "基座拓展",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "compile": "vue-tsc --noEmit",
+    "demo:bridge": "wxt build && serve .output/chrome-mv3 -l tcp://127.0.0.1:8765",
+    "test:e2e": "vitest run",
+    "test:e2e:ui": "vitest --ui",
+    "test:e2e:watch": "vitest",
+    "test:all": "pnpm build && pnpm test:e2e",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "extension-bridge": "workspace:*",
+    "vue": "^3.5.29"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.38",
+    "@vitest/ui": "^4.1.1",
+    "@wxt-dev/module-vue": "^1.0.3",
+    "playwright": "^1.50.1",
+    "serve": "^14.2.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.1",
+    "vue-tsc": "^3.2.5",
+    "wxt": "^0.20.20"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "name": "extension-bridge",
+  "version": "1.0.0",
+  "description": "浏览器扩展 Bridge：让普通网页通过扩展进程调用 chrome.* API，并支持将扩展侧事件推回页面",
+  "author": "justinzheng",
+  "license": "ISC",
+  "homepage": "https://github.com/your-org/extension-bridge#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/extension-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/extension-bridge/issues"
+  },
+  "keywords": [
+    "chrome-extension",
+    "browser-extension",
+    "manifest-v3",
+    "postMessage",
+    "bridge",
+    "chrome-api"
+  ],
+  "exports": {
+    ".": {
+      "types": "./core/types.d.ts",
+      "import": "./index.ts"
+    },
+    "./client": {
+      "types": "./core/client.d.ts",
+      "import": "./core/client.ts"
+    },
+    "./connector": {
+      "types": "./connector/index.d.ts",
+      "import": "./connector/index.ts"
+    },
+    "./procedures/management": {
+      "import": "./procedures/management.ts"
+    },
+    "./procedures/tabs": {
+      "import": "./procedures/tabs.ts"
+    }
+  },
+  "main": "index.ts",
+  "types": "core/types.ts",
+  "files": [
+    "ARCHITECTURE.md",
+    "IMPLEMENTATION_PLAN.md",
+    "README.md",
+    "connector/",
+    "core/",
+    "index.ts",
+    "procedures/"
+  ],
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "eslint . --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "es-toolkit": "^1.45.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.38",
+    "@vitest/coverage-v8": "^1.5.0",
+    "esbuild": "^0.20.2",
+    "happy-dom": "^14.12.2",
+    "typescript": "^5.4.5",
+    "vitest": "^1.5.0"
+  }
+}

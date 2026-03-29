@@ -2,7 +2,7 @@
   "name": "best",
   "version": "1.0.0",
   "private": true,
-  "description": "",
+  "description": "browser extension solution",
   "homepage": "https://github.com/francecil/best#readme",
   "bugs": {
     "url": "https://github.com/francecil/best/issues"

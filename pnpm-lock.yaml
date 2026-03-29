@@ -35,7 +35,7 @@ importers:
 
   packages/pedestal-extension:
     dependencies:
-      '@futu/extension-bridge':
+      extension-bridge:
         specifier: workspace:*
         version: link:../bridge
       vue:
