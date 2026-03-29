@@ -14,7 +14,7 @@
    `pnpm --filter pedestal-extension demo:bridge`
    （脚本会先 `wxt build`，再用本包 devDependency `serve` 托管 `.output/chrome-mv3`。）
 5. 在浏览器访问：
-   [http://127.0.0.1:8765/bridge-demo.html](http://127.0.0.1:8765/bridge-demo.html)
+   [http://127.0.0.1:8765/bridge-test.html](http://127.0.0.1:8765/bridge-test.html)
    页面中的文本框应显示 `chrome.management.getAll()` 返回的 JSON。
 
 若文本框为错误信息，请检查：扩展是否已加载并授予 **管理** 权限、URL 是否为 `127.0.0.1:8765`、以及是否已重新构建后再 serve。
@@ -22,11 +22,5 @@
 ## 开发
 
 ```bash
-pnpm --filter pedestal-extension dev
-```
-
-类型检查：
-
-```bash
-pnpm --filter pedestal-extension compile
+pnpm dev
 ```

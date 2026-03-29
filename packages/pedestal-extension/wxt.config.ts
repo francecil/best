@@ -7,4 +7,10 @@ export default defineConfig({
     name: 'Pedestal Extension',
     permissions: ['management'],
   },
+  vite: () => ({
+    resolve: {
+      // 优先解析 workspace 包的 TypeScript 源码，开发时无需预构建
+      conditions: ['source'],
+    },
+  }),
 });

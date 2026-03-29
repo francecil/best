@@ -20,38 +20,43 @@
     "bridge",
     "chrome-api"
   ],
+  "type": "module",
   "exports": {
     ".": {
-      "types": "./core/types.d.ts",
-      "import": "./index.ts"
+      "types": "./dist/index.d.ts",
+      "source": "./index.ts",
+      "import": "./dist/index.js"
     },
     "./client": {
-      "types": "./core/client.d.ts",
-      "import": "./core/client.ts"
+      "types": "./dist/core/client.d.ts",
+      "source": "./core/client.ts",
+      "import": "./dist/core/client.js"
     },
     "./connector": {
-      "types": "./connector/index.d.ts",
-      "import": "./connector/index.ts"
+      "types": "./dist/connector/index.d.ts",
+      "source": "./connector/index.ts",
+      "import": "./dist/connector/index.js"
     },
     "./procedures/management": {
-      "import": "./procedures/management.ts"
+      "types": "./dist/procedures/management.d.ts",
+      "source": "./procedures/management.ts",
+      "import": "./dist/procedures/management.js"
     },
     "./procedures/tabs": {
-      "import": "./procedures/tabs.ts"
+      "types": "./dist/procedures/tabs.d.ts",
+      "source": "./procedures/tabs.ts",
+      "import": "./dist/procedures/tabs.js"
     }
   },
-  "main": "index.ts",
-  "types": "core/types.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
-    "ARCHITECTURE.md",
-    "IMPLEMENTATION_PLAN.md",
-    "README.md",
-    "connector/",
-    "core/",
-    "index.ts",
-    "procedures/"
+    "dist/",
+    "README.md"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "pnpm run build",
     "type-check": "tsc --noEmit",
     "lint": "eslint . --ext .ts",
     "test": "vitest run",
