@@ -1,0 +1,26 @@
+{
+  "name": "best",
+  "version": "1.0.0",
+  "private": true,
+  "description": "",
+  "homepage": "https://github.com/francecil/best#readme",
+  "bugs": {
+    "url": "https://github.com/francecil/best/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/francecil/best.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=8"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "type-check": "pnpm -r run type-check",
+    "lint": "pnpm -r run lint"
+  }
+}
