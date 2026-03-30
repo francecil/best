@@ -18,6 +18,7 @@
     "pnpm": ">=8"
   },
   "scripts": {
+    "prepare": "pnpm --filter extension-bridge run build",
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "type-check": "pnpm -r run type-check",
