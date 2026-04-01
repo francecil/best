@@ -4,13 +4,13 @@
   "description": "浏览器扩展 Bridge：让普通网页通过扩展进程调用 chrome.* API，并支持将扩展侧事件推回页面",
   "author": "justinzheng",
   "license": "ISC",
-  "homepage": "https://github.com/your-org/extension-bridge#readme",
+  "homepage": "https://github.com/francecil/best#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/extension-bridge.git"
+    "url": "https://github.com/francecil/best.git"
   },
   "bugs": {
-    "url": "https://github.com/your-org/extension-bridge/issues"
+    "url": "https://github.com/francecil/best/issues"
   },
   "keywords": [
     "chrome-extension",
