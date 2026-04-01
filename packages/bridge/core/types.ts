@@ -20,18 +20,20 @@ export type SubscriptionEmit<TOutput> = (data: TOutput) => void;
 export type SubscriptionCleanup = () => void;
 export type SubscriptionHandler<TOutput> = (emit: SubscriptionEmit<TOutput>) => SubscriptionCleanup;
 
-export interface Procedure<TInput = unknown, TOutput = unknown> {
-  _meta: ProcedureMeta;
+export interface Procedure<TInput = unknown, TOutput = unknown, TType extends ProcedureType = ProcedureType> {
+  _meta: { type: TType };
   _input?: TInput;
   _output?: TOutput;
-  handler: ProcedureHandler<TInput, TOutput> | SubscriptionHandler<TOutput>;
+  handler: TType extends 'subscription'
+    ? SubscriptionHandler<TOutput>
+    : ProcedureHandler<TInput, TOutput>;
 }
 
 // ========================================
 // Router Types
 // ========================================
 
-export type AnyProcedure = Procedure<any, any>;
+export type AnyProcedure = Procedure<any, any, ProcedureType>;
 
 export interface ProcedureRecord {
   [key: string]: AnyProcedure | ProcedureRecord;
@@ -43,27 +45,25 @@ export type Router = ProcedureRecord;
 // Client Types
 // ========================================
 
-export interface QueryProcedure<TInput, TOutput> {
-  query: (input: TInput) => Promise<TOutput>;
-}
+/** Callable type for query/mutation procedures */
+export type ProcedureCallable<TInput, TOutput> =
+  [TInput] extends [void]
+    ? () => Promise<TOutput>
+    : (input: TInput) => Promise<TOutput>;
 
-export interface MutationProcedure<TInput, TOutput> {
-  mutate: (input: TInput) => Promise<TOutput>;
-}
-
-export interface SubscriptionProcedure<TOutput> {
-  subscribe: (callback: (data: TOutput) => void) => () => void;
-}
+/** Callable type for subscription procedures */
+export type SubscriptionCallable<TOutput> =
+  (callback: (data: TOutput) => void) => () => void;
 
 // 推导客户端类型
 export type InferClientType<TProcedure> =
-  TProcedure extends Procedure<infer TInput, infer TOutput>
-    ? TProcedure['_meta']['type'] extends 'query'
-      ? QueryProcedure<TInput, TOutput>
-      : TProcedure['_meta']['type'] extends 'mutation'
-        ? MutationProcedure<TInput, TOutput>
-        : TProcedure['_meta']['type'] extends 'subscription'
-          ? SubscriptionProcedure<TOutput>
+  TProcedure extends Procedure<infer TInput, infer TOutput, infer TType>
+    ? TType extends 'query'
+      ? ProcedureCallable<TInput, TOutput>
+      : TType extends 'mutation'
+        ? ProcedureCallable<TInput, TOutput>
+        : TType extends 'subscription'
+          ? SubscriptionCallable<TOutput>
           : never
     : TProcedure extends ProcedureRecord
       ? InferClient<TProcedure>
@@ -131,10 +131,29 @@ export enum JsonRpcErrorCode {
 // Bridge Options
 // ========================================
 
+/**
+ * Configuration for generic Chrome API fallback.
+ * - `true`: allow all chrome.* namespaces
+ * - `string[]`: allowlist of top-level namespaces (e.g. ['bookmarks', 'history'])
+ * - `false` | `undefined`: disabled (default)
+ */
+export type ChromeApiConfig = boolean | string[];
+
 export interface BridgeOptions {
   debug?: boolean;
   timeout?: number;
+  /** Enable generic Chrome API passthrough for unregistered procedures */
+  chromeApi?: ChromeApiConfig;
 }
+
+// ========================================
+// Chrome API Client Types
+// ========================================
+
+/** Client-side proxy type for $chrome generic passthrough */
+export type ChromeApiClient = {
+  [namespace: string]: ChromeApiClient & ((...args: unknown[]) => Promise<unknown>);
+};
 
 export interface ClientOptions extends BridgeOptions {
   retry?: {

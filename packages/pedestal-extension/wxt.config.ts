@@ -5,7 +5,8 @@ export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   manifest: {
     name: 'Pedestal Extension',
-    permissions: ['management'],
+    permissions: ['management', 'cookies', 'storage', 'offscreen'],
+    host_permissions: ['<all_urls>'],
   },
   vite: () => ({
     resolve: {

@@ -30,7 +30,7 @@ pnpm add extension-bridge
 
 ```typescript
 import { createBridge } from 'extension-bridge';
-import { managementProcedures } from 'extension-bridge/procedures/management';
+import { managementProcedures } from 'extension-bridge'
 
 export const bridge = createBridge({
   extensions: managementProcedures
@@ -44,7 +44,7 @@ bridge.listen();
 #### 2. Content Script (content-script.ts)
 
 ```typescript
-import { connectBridge } from 'extension-bridge/connector';
+import { connectBridge } from 'extension-bridge'
 
 connectBridge({ debug: true });
 ```
@@ -53,13 +53,13 @@ connectBridge({ debug: true });
 
 ```typescript
 import type { AppBridge } from './background';
-import { createClient } from 'extension-bridge/client';
+import { createClient } from 'extension-bridge'
 
 const bridge = createClient<AppBridge>();
 await bridge.$waitForReady();
 
 // 使用 - 完全类型安全
-const extensions = await bridge.extensions.getAll.query();
+const extensions = await bridge.extensions.getAll();
 ```
 
 #### 4. Manifest
@@ -106,7 +106,7 @@ export type AppBridge = typeof bridge;
 
 // 客户端 - 完全类型安全
 const client = createClient<AppBridge>();
-const extensions = await client.extensions.getAll.query();
+const extensions = await client.extensions.getAll();
 //    ^? ExtensionInfo[] - 自动推导
 ```
 
@@ -123,7 +123,7 @@ const extensions = await client.extensions.getAll.query();
 只需一行代码：
 
 ```typescript
-import { connectBridge } from 'extension-bridge/connector';
+import { connectBridge } from 'extension-bridge'
 
 connectBridge(); // 完成！自动处理所有通信细节
 ```

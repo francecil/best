@@ -6,6 +6,7 @@ type ExtensionInfo = chrome.management.ExtensionInfo
 
 const connected = ref(false)
 const extensions = ref<ExtensionInfo[]>([])
+const iconUrls = ref<Record<string, string>>({})
 const loading = ref(true)
 const error = ref<string | null>(null)
 
@@ -16,7 +17,7 @@ async function init() {
   connected.value = true
   await loadExtensions()
 
-  unsubscribe = bridge.extensions.onChanged.subscribe(() => {
+  unsubscribe = bridge.extensions.onChanged(() => {
     loadExtensions()
   })
 }
@@ -25,7 +26,26 @@ async function loadExtensions() {
   loading.value = true
   error.value = null
   try {
-    extensions.value = await bridge.extensions.getAll.query()
+    const list = await bridge.extensions.getAll()
+    extensions.value = list
+
+    // Fetch all icons as data URLs in parallel (failures are silently ignored)
+    const results = await Promise.allSettled(
+      list
+        .filter(ext => ext.icons?.length)
+        .map(async ext => {
+          const icon = ext.icons![ext.icons!.length - 1]
+          const dataUrl = await bridge.resources.fetch(icon.url)
+          return { id: ext.id, dataUrl }
+        })
+    )
+    const urls: Record<string, string> = {}
+    for (const r of results) {
+      if (r.status === 'fulfilled') {
+        urls[r.value.id] = r.value.dataUrl
+      }
+    }
+    iconUrls.value = urls
   }
   catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -36,13 +56,13 @@ async function loadExtensions() {
 }
 
 async function toggleEnabled(ext: ExtensionInfo) {
-  await bridge.extensions.setEnabled.mutate({ id: ext.id, enabled: !ext.enabled })
+  await bridge.extensions.setEnabled({ id: ext.id, enabled: !ext.enabled })
 }
 
 async function uninstall(ext: ExtensionInfo) {
   if (!confirm(`确认卸载「${ext.name}」？`))
     return
-  await bridge.extensions.uninstall.mutate({ id: ext.id, showConfirmDialog: false })
+  await bridge.extensions.uninstall({ id: ext.id, showConfirmDialog: false })
 }
 
 onMounted(() => {
@@ -77,7 +97,7 @@ onUnmounted(() => {
 
     <ul v-else class="list">
       <li v-for="ext in extensions" :key="ext.id" class="item" :class="{ disabled: !ext.enabled }">
-        <img v-if="ext.icons?.length" :src="ext.icons.at(-1)!.url" class="icon" alt="" />
+        <img v-if="iconUrls[ext.id]" :src="iconUrls[ext.id]" class="icon" alt="" />
         <div class="info">
           <span class="name">{{ ext.name }}</span>
           <span class="version">v{{ ext.version }}</span>

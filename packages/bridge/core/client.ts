@@ -3,6 +3,7 @@
  */
 
 import type {
+  ChromeApiClient,
   ClientOptions,
   InferClient,
   JsonRpcNotification,
@@ -10,15 +11,17 @@ import type {
   JsonRpcResponse,
   Router,
 } from './types';
+import { BridgeError } from './error';
 import { createLogger } from './logger';
 
 export class BridgeClient<TRouter extends Router> {
+  /** 双向连接通道 port */
   private port: MessagePort | null = null;
   private ready = false;
-  private readyPromise: Promise<void>;
+  private readonly readyPromise: Promise<void>;
   private resolveReady!: () => void;
   private requestId = 0;
-  private pendingRequests = new Map<
+  private readonly pendingRequests = new Map<
     string | number,
     {
       resolve: (value: unknown) => void;
@@ -27,7 +30,7 @@ export class BridgeClient<TRouter extends Router> {
     }
   >();
 
-  private subscriptions = new Map<
+  private readonly subscriptions = new Map<
     string,
     {
       callback: (data: unknown) => void;
@@ -36,8 +39,8 @@ export class BridgeClient<TRouter extends Router> {
     }
   >();
 
-  private logger: ReturnType<typeof createLogger>;
-  private options: ClientOptions;
+  private readonly logger: ReturnType<typeof createLogger>;
+  private readonly options: ClientOptions;
 
   constructor(options: ClientOptions = {}) {
     this.options = {
@@ -62,7 +65,7 @@ export class BridgeClient<TRouter extends Router> {
   /**
    * Initialize connection
    */
-  private async init() {
+  private init() {
     this.logger.info('Initializing client...');
 
     // Wait for bridge:ready event
@@ -70,6 +73,7 @@ export class BridgeClient<TRouter extends Router> {
       if (event.data?.type === 'bridge:init' && event.data?.port) {
         this.logger.info('Received MessagePort from Content Script');
 
+        // 连接成功后，建立双向连接通道 port
         this.port = event.data.port;
 
         this.port!.onmessage = e => this.handleMessage(e.data);
@@ -97,14 +101,45 @@ export class BridgeClient<TRouter extends Router> {
     window.addEventListener('message', messageHandler);
 
     // Request connection
-    window.postMessage({ type: 'bridge:connect' }, '*');
+    window.postMessage({ type: 'bridge:connect' }, globalThis.location.origin);
   }
 
   /**
    * Wait for client to be ready
    */
-  async $waitForReady(): Promise<void> {
+  async $waitForReady() {
     return this.readyPromise;
+  }
+
+  /**
+   * Call an arbitrary method by string path.
+   * Useful for generic Chrome API passthrough when chromeApi is enabled on the bridge.
+   */
+  async $call<T = unknown>(method: string, params?: unknown): Promise<T> {
+    return this.request<T>(method, params);
+  }
+
+  /**
+   * Proxy for calling generic Chrome APIs by chained property access.
+   * Usage: client.$chrome.bookmarks.getTree()
+   * Requires chromeApi to be enabled on the bridge.
+   */
+  get $chrome(): ChromeApiClient {
+    return this.createChromeProxy('') as ChromeApiClient;
+  }
+
+  private createChromeProxy(basePath: string): any {
+    const self = this;
+    return new Proxy(function () {}, {
+      get(_target, prop: string) {
+        const nextPath = basePath ? `${basePath}.${prop}` : prop;
+        return self.createChromeProxy(nextPath);
+      },
+      apply(_target, _thisArg, args: unknown[]) {
+        const params = args.length === 0 ? undefined : args.length === 1 ? args[0] : args;
+        return self.request(basePath, params);
+      },
+    });
   }
 
   /**
@@ -141,10 +176,7 @@ export class BridgeClient<TRouter extends Router> {
     this.pendingRequests.delete(response.id);
 
     if ('error' in response) {
-      const error = new Error(response.error.message)
-      ;(error as any).code = response.error.code
-      ;(error as any).data = response.error.data;
-      pending.reject(error);
+      pending.reject(BridgeError.fromResponse(response.error));
     }
     else {
       pending.resolve(response.result);
@@ -272,22 +304,30 @@ export class BridgeClient<TRouter extends Router> {
   }
 
   /**
-   * Create router proxy (single level per segment: a.b.c.query → path "a.b.c")
+   * Create router proxy — each node is both accessible (for path building)
+   * and directly callable as a procedure.
+   *
+   * Usage:
+   *   bridge.ns.method(input)           — query/mutation
+   *   bridge.ns.onEvent(callback)        — subscription (returns unsubscribe fn)
    */
   private createRouterProxy(basePath: string = ''): any {
-    return new Proxy(
-      {},
-      {
-        get: (_target, prop: string) => {
-          if (['query', 'mutate', 'subscribe'].includes(prop)) {
-            return this.createProcedure(basePath)[prop];
-          }
-
-          const nextPath = basePath ? `${basePath}.${prop}` : prop;
-          return this.createRouterProxy(nextPath);
-        },
+    const self = this;
+    return new Proxy(function () {}, {
+      get(_target, prop: string) {
+        const nextPath = basePath ? `${basePath}.${prop}` : prop;
+        return self.createRouterProxy(nextPath);
       },
-    );
+      apply(_target, _thisArg, args: unknown[]) {
+        const [firstArg] = args;
+        if (typeof firstArg === 'function') {
+          // Subscription: bridge.ns.onEvent(callback) => () => void
+          return self.createProcedure(basePath).subscribe(firstArg as (data: unknown) => void);
+        }
+        // Query/mutation: bridge.ns.method(input?) => Promise<result>
+        return self.request(basePath, args.length === 0 ? undefined : firstArg);
+      },
+    });
   }
 
   /**
@@ -303,7 +343,11 @@ export class BridgeClient<TRouter extends Router> {
  */
 export function createClient<TRouter extends Router>(
   options?: ClientOptions,
-): BridgeClient<TRouter>['client'] & { $waitForReady: () => Promise<void> } {
+): InferClient<TRouter> & {
+  $waitForReady: () => Promise<void>;
+  $call: <T = unknown>(method: string, params?: unknown) => Promise<T>;
+  $chrome: ChromeApiClient;
+} {
   const instance = new BridgeClient<TRouter>(options);
 
   return new Proxy(instance.client as any, {
@@ -311,7 +355,12 @@ export function createClient<TRouter extends Router>(
       if (prop === '$waitForReady') {
         return () => instance.$waitForReady();
       }
-
+      if (prop === '$call') {
+        return <T = unknown>(method: string, params?: unknown) => instance.$call<T>(method, params);
+      }
+      if (prop === '$chrome') {
+        return instance.$chrome;
+      }
       return target[prop];
     },
   });

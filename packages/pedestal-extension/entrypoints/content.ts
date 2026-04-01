@@ -1,4 +1,4 @@
-import { connectBridge } from 'extension-bridge/connector';
+import { connectBridge } from 'extension-bridge'
 
 export default defineContentScript({
   matches: [

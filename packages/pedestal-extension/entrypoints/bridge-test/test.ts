@@ -1,22 +1,20 @@
 import type { PedestalBridgeRouter } from '../../lib/bridge-router';
-import { createClient } from 'extension-bridge/client';
+import { createClient } from 'extension-bridge'
 
 // Type-safe client (manual definition due to nested router type inference limitation)
 interface BridgeClient {
   $waitForReady: () => Promise<void>;
   extensions: {
-    getAll: { query: (input?: unknown) => Promise<chrome.management.ExtensionInfo[]> };
-    get: { query: (id: string) => Promise<chrome.management.ExtensionInfo> };
-    getSelf: { query: (input?: unknown) => Promise<chrome.management.ExtensionInfo> };
-    setEnabled: { mutate: (params: { id: string; enabled: boolean }) => Promise<void> };
-    uninstall: { mutate: (params: { id: string; showConfirmDialog?: boolean }) => Promise<void> };
-    uninstallSelf: { mutate: (params?: { showConfirmDialog?: boolean }) => Promise<void> };
-    onChanged: {
-      subscribe: (callback: (data: {
-        type: 'installed' | 'uninstalled' | 'enabled' | 'disabled';
-        data: chrome.management.ExtensionInfo | string;
-      }) => void) => () => void;
-    };
+    getAll: () => Promise<chrome.management.ExtensionInfo[]>;
+    get: (id: string) => Promise<chrome.management.ExtensionInfo>;
+    getSelf: () => Promise<chrome.management.ExtensionInfo>;
+    setEnabled: (params: { id: string; enabled: boolean }) => Promise<void>;
+    uninstall: (params: { id: string; showConfirmDialog?: boolean }) => Promise<void>;
+    uninstallSelf: (params?: { showConfirmDialog?: boolean }) => Promise<void>;
+    onChanged: (callback: (data: {
+      type: 'installed' | 'uninstalled' | 'enabled' | 'disabled';
+      data: chrome.management.ExtensionInfo | string;
+    }) => void) => () => void;
   };
 }
 
@@ -114,7 +112,7 @@ async function initClient() {
 // Test 5: Basic Query
 (window as any).testQuery = async () => {
   await runTest('basic-1', 'Query 操作', async () => {
-    const result = await client.extensions.getAll.query();
+    const result = await client.extensions.getAll();
 
     if (!Array.isArray(result)) {
       throw new Error('返回结果不是数组');
@@ -132,7 +130,7 @@ async function initClient() {
       let eventCount = 0;
       let timeout: ReturnType<typeof setTimeout>;
 
-      const unsubscribe = client.extensions.onChanged.subscribe((data: any) => {
+      const unsubscribe = client.extensions.onChanged((data: any) => {
         eventCount++;
         log(`收到订阅事件 #${eventCount}: ${data.type}`, 'info');
 
@@ -163,11 +161,11 @@ async function initClient() {
     const events1: any[] = [];
     const events2: any[] = [];
 
-    const unsub1 = client.extensions.onChanged.subscribe((data: any) => {
+    const unsub1 = client.extensions.onChanged((data: any) => {
       events1.push(data);
     });
 
-    const unsub2 = client.extensions.onChanged.subscribe((data: any) => {
+    const unsub2 = client.extensions.onChanged((data: any) => {
       events2.push(data);
     });
 
@@ -199,7 +197,7 @@ async function initClient() {
       // Try to create 60 subscriptions (limit is 50)
       for (let i = 0; i < 60; i++) {
         try {
-          const unsub = client.extensions.onChanged.subscribe(() => {});
+          const unsub = client.extensions.onChanged(() => {});
           subscriptions.push(unsub);
           successCount++;
         }
@@ -244,7 +242,7 @@ async function initClient() {
 
     const receivedEvents: any[] = [];
 
-    const unsub = client.extensions.onChanged.subscribe((data: any) => {
+    const unsub = client.extensions.onChanged((data: any) => {
       receivedEvents.push(data);
     });
 
@@ -294,7 +292,7 @@ async function initClient() {
 
     // Execute 100 concurrent queries
     const promises = Array.from({ length: queryCount }, () =>
-      client.extensions.getAll.query());
+      client.extensions.getAll());
 
     const results = await Promise.all(promises);
 

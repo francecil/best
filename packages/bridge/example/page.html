@@ -285,11 +285,10 @@ bridge.off('management.onInstalled', handler)</code></pre>
         <div class="comparison-item new">
           <h3>新方案 ✨</h3>
           <pre><code>// 完全类型安全，自动补全
-await bridge.extensions.getAll.query()
+await bridge.extensions.getAll()
 
-// 自动清理
-const unsub = bridge.extensions
-  .onChanged.subscribe(handler)
+// 订阅 - 直接传回调，返回取消函数
+const unsub = bridge.extensions.onChanged(handler)
 unsub() // 自动清理</code></pre>
         </div>
       </div>
@@ -308,7 +307,7 @@ unsub() // 自动清理</code></pre>
       async getExtensions() {
         try {
           addOutput('正在获取扩展列表...', 'info')
-          const extensions = await bridge.extensions.getAll.query()
+          const extensions = await bridge.extensions.getAll()
           addOutput(`✓ 获取成功: ${extensions.length} 个扩展`, 'success')
           addOutput(JSON.stringify(extensions.slice(0, 3), null, 2), 'info')
         } catch (error) {
@@ -319,7 +318,7 @@ unsub() // 自动清理</code></pre>
       async getSelf() {
         try {
           addOutput('正在获取当前扩展信息...', 'info')
-          const self = await bridge.extensions.getSelf.query()
+          const self = await bridge.extensions.getSelf()
           addOutput(`✓ 当前扩展: ${self.name}`, 'success')
           addOutput(JSON.stringify(self, null, 2), 'info')
         } catch (error) {
@@ -330,7 +329,7 @@ unsub() // 自动清理</code></pre>
       async getTabs() {
         try {
           addOutput('正在获取标签页列表...', 'info')
-          const tabs = await bridge.tabs.query.query({})
+          const tabs = await bridge.tabs.query({})
           addOutput(`✓ 获取成功: ${tabs.length} 个标签页`, 'success')
           tabs.slice(0, 3).forEach(tab => {
             addOutput(`  - ${tab.title}`, 'info')
@@ -346,7 +345,7 @@ unsub() // 自动清理</code></pre>
           if (!url) return
 
           addOutput(`正在打开: ${url}`, 'info')
-          const tab = await bridge.tabs.create.mutate({ url })
+          const tab = await bridge.tabs.create({ url })
           addOutput(`✓ 已打开标签页 ID: ${tab.id}`, 'success')
         } catch (error) {
           addOutput(`✗ 错误: ${error.message}`, 'error')
@@ -361,7 +360,7 @@ unsub() // 自动清理</code></pre>
 
         addEvent('正在订阅扩展变化事件...', 'info')
 
-        unsubscribeExtensions = bridge.extensions.onChanged.subscribe((event) => {
+        unsubscribeExtensions = bridge.extensions.onChanged((event) => {
           const emoji = {
             installed: '📦',
             uninstalled: '🗑️',

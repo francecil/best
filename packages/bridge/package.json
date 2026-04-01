@@ -26,26 +26,6 @@
       "types": "./dist/index.d.ts",
       "source": "./index.ts",
       "import": "./dist/index.js"
-    },
-    "./client": {
-      "types": "./dist/core/client.d.ts",
-      "source": "./core/client.ts",
-      "import": "./dist/core/client.js"
-    },
-    "./connector": {
-      "types": "./dist/connector/index.d.ts",
-      "source": "./connector/index.ts",
-      "import": "./dist/connector/index.js"
-    },
-    "./procedures/management": {
-      "types": "./dist/procedures/management.d.ts",
-      "source": "./procedures/management.ts",
-      "import": "./dist/procedures/management.js"
-    },
-    "./procedures/tabs": {
-      "types": "./dist/procedures/tabs.d.ts",
-      "source": "./procedures/tabs.ts",
-      "import": "./dist/procedures/tabs.js"
     }
   },
   "main": "./dist/index.js",

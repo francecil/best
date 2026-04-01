@@ -251,7 +251,7 @@ for await (const chunk of stream) {
 #### 4.1 单元测试
 
 ```typescript
-import { createTestBridge } from 'extension-bridge/testing';
+import { createTestBridge } from 'extension-bridge'
 // __tests__/bridge.test.ts
 import { describe, expect, it } from 'vitest';
 
@@ -272,7 +272,7 @@ describe('Bridge', () => {
 #### 4.2 E2E 测试
 
 ```typescript
-import { loadExtension } from 'extension-bridge/testing';
+import { loadExtension } from 'extension-bridge'
 // __tests__/e2e.test.ts
 import { test } from '@playwright/test';
 
@@ -388,25 +388,26 @@ export default {
 1. ✅ 核心架构
 2. ✅ 基础 Procedures (management, tabs)
 3. ✅ 示例代码
-4. ⏳ 完善错误处理
-5. ⏳ 添加更多内置 Procedures
-6. ⏳ 单元测试
+4. ✅ 完善错误处理
+5. ✅ 添加更多内置 Procedures
+6. ✅ 单元测试
+7. ✅ 支持通用 Procedures 调用
 
 ### 重要 (P1)
 
-7. ⏳ 类型生成工具
-8. ⏳ DevTools 面板
-9. ⏳ 中间件系统
-10. ⏳ E2E 测试
-11. ⏳ 完整文档
+8. ⏳ 类型生成工具
+9. ⏳ DevTools 面板
+10. ⏳ 中间件系统
+11. ⏳ E2E 测试
+12. ⏳ 完整文档
 
 ### 可选 (P2)
 
-12. ⏳ 批量请求
-13. ⏳ 缓存系统
-14. ⏳ 流式响应
-15. ⏳ 性能测试
-16. ⏳ 更多示例
+13. ⏳ 批量请求
+14. ⏳ 缓存系统
+15. ⏳ 流式响应
+16. ⏳ 性能测试
+17. ⏳ 更多示例
 
 ---
 
