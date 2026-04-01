@@ -4,8 +4,7 @@
  */
 
 import { createBridge } from '../core/bridge';
-import { managementProcedures } from '../procedures/management';
-import { tabsProcedures } from '../procedures/tabs';
+import { managementProcedures, tabsProcedures } from '../procedures';
 
 // Create bridge with built-in procedures
 export const bridge = createBridge(

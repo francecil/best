@@ -1,0 +1,23 @@
+{
+  "name": "extension-manage",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "extension-bridge": "workspace:*",
+    "vue": "^3.5.29"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.38",
+    "@vitejs/plugin-vue": "^6.0.5",
+    "typescript": "^5.4.5",
+    "vite": "^8.0.0",
+    "vue-tsc": "^2.1.0"
+  }
+}

@@ -5,6 +5,7 @@
 import type {
   AnyProcedure,
   BridgeOptions,
+  ChromeApiConfig,
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
@@ -12,19 +13,23 @@ import type {
   SubscriptionCleanup,
   SubscriptionEmit,
 } from './types';
+import { BridgeError } from './error';
+import { callChromeApi, isChromeApiAllowed } from './chrome-api-resolver';
 import { createLogger } from './logger';
 import { JsonRpcErrorCode } from './types';
 
 export class Bridge<TRouter extends Router> {
-  private router: TRouter;
-  private subscriptions = new Map<chrome.runtime.Port, Map<string, SubscriptionCleanup>>();
-  private logger: ReturnType<typeof createLogger>;
-  private ports = new Set<chrome.runtime.Port>();
-  private procedureCache = new Map<string, AnyProcedure | null>();
+  private readonly router: TRouter;
+  private readonly subscriptions = new Map<chrome.runtime.Port, Map<string, SubscriptionCleanup>>();
+  private readonly logger: ReturnType<typeof createLogger>;
+  private readonly ports = new Set<chrome.runtime.Port>();
+  private readonly procedureCache = new Map<string, AnyProcedure | null>();
   private readonly MAX_SUBSCRIPTIONS_PER_PORT = 50;
+  private readonly chromeApiConfig: ChromeApiConfig | undefined;
 
   constructor(router: TRouter, options: BridgeOptions = {}) {
     this.router = router;
+    this.chromeApiConfig = options.chromeApi;
     this.logger = createLogger('Bridge', options.debug ?? false);
   }
 
@@ -84,7 +89,7 @@ export class Bridge<TRouter extends Router> {
       return;
     }
 
-    const request = message as JsonRpcRequest;
+    const request = message;
 
     try {
       this.logger.debug(`→ ${request.method}`, request.params);
@@ -107,13 +112,17 @@ export class Bridge<TRouter extends Router> {
     catch (error) {
       this.logger.error(`✗ ${request.method}`, error);
 
+      const code = error instanceof BridgeError
+        ? error.code
+        : JsonRpcErrorCode.InternalError;
+
       const response: JsonRpcResponse = {
         jsonrpc: '2.0',
         id: request.id,
         error: {
-          code: JsonRpcErrorCode.InternalError,
+          code,
           message: error instanceof Error ? error.message : String(error),
-          data: error,
+          data: error instanceof BridgeError ? error.data : error,
         },
       };
 
@@ -131,18 +140,24 @@ export class Bridge<TRouter extends Router> {
   ): Promise<unknown> {
     const procedure = this.resolveProcedure(path);
 
-    if (!procedure) {
-      throw new Error(`Procedure not found: ${path}`);
+    if (procedure) {
+      // Handle subscription
+      if (procedure._meta.type === 'subscription') {
+        return this.handleSubscription(path, procedure, port);
+      }
+
+      // Handle query/mutation
+      const handler = procedure.handler as (input: unknown) => Promise<unknown>;
+      return await handler(params);
     }
 
-    // Handle subscription
-    if (procedure._meta.type === 'subscription') {
-      return this.handleSubscription(path, procedure, port);
+    // Fallback: generic Chrome API passthrough
+    if (isChromeApiAllowed(path, this.chromeApiConfig)) {
+      this.logger.debug(`Chrome API fallback: chrome.${path}`);
+      return await callChromeApi(path, params);
     }
 
-    // Handle query/mutation
-    const handler = procedure.handler as (input: unknown) => Promise<unknown>;
-    return await handler(params);
+    throw new BridgeError(JsonRpcErrorCode.MethodNotFound, `Procedure not found: ${path}`);
   }
 
   /**

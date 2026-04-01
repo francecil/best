@@ -20,38 +20,23 @@
     "bridge",
     "chrome-api"
   ],
+  "type": "module",
   "exports": {
     ".": {
-      "types": "./core/types.d.ts",
-      "import": "./index.ts"
-    },
-    "./client": {
-      "types": "./core/client.d.ts",
-      "import": "./core/client.ts"
-    },
-    "./connector": {
-      "types": "./connector/index.d.ts",
-      "import": "./connector/index.ts"
-    },
-    "./procedures/management": {
-      "import": "./procedures/management.ts"
-    },
-    "./procedures/tabs": {
-      "import": "./procedures/tabs.ts"
+      "types": "./dist/index.d.ts",
+      "source": "./index.ts",
+      "import": "./dist/index.js"
     }
   },
-  "main": "index.ts",
-  "types": "core/types.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
-    "ARCHITECTURE.md",
-    "IMPLEMENTATION_PLAN.md",
-    "README.md",
-    "connector/",
-    "core/",
-    "index.ts",
-    "procedures/"
+    "dist/",
+    "README.md"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "pnpm run build",
     "type-check": "tsc --noEmit",
     "lint": "eslint . --ext .ts",
     "test": "vitest run",

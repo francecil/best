@@ -13,7 +13,7 @@ import type {
  */
 export function query<TInput = void, TOutput = unknown>(
   handler: ProcedureHandler<TInput, TOutput>,
-): Procedure<TInput, TOutput> {
+): Procedure<TInput, TOutput, 'query'> {
   return {
     _meta: { type: 'query' },
     handler,
@@ -25,7 +25,7 @@ export function query<TInput = void, TOutput = unknown>(
  */
 export function mutation<TInput = void, TOutput = unknown>(
   handler: ProcedureHandler<TInput, TOutput>,
-): Procedure<TInput, TOutput> {
+): Procedure<TInput, TOutput, 'mutation'> {
   return {
     _meta: { type: 'mutation' },
     handler,
@@ -37,7 +37,7 @@ export function mutation<TInput = void, TOutput = unknown>(
  */
 export function subscription<TOutput = unknown>(
   handler: SubscriptionHandler<TOutput>,
-): Procedure<void, TOutput> {
+): Procedure<void, TOutput, 'subscription'> {
   return {
     _meta: { type: 'subscription' },
     handler,

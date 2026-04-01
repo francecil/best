@@ -88,16 +88,16 @@ export type BridgeRouter = typeof bridge;
 const client = createClient<BridgeRouter>();
 
 // TypeScript 自动推导返回类型
-const extensions = await client.getExtensions.query();
+const extensions = await client.getExtensions();
 //    ^? ExtensionInfo[]
 
-const ext = await client.getExtension.query('extension-id');
+const ext = await client.getExtension('extension-id');
 //    ^? ExtensionInfo
 
-await client.toggleExtension.mutate({ id: 'xxx', enabled: false });
+await client.toggleExtension({ id: 'xxx', enabled: false });
 
-// 订阅事件
-const unsubscribe = client.onExtensionChange.subscribe((data) => {
+// 订阅事件（传入回调即订阅，返回取消订阅函数）
+const unsubscribe = client.onExtensionChange((data) => {
   console.log('Extension changed:', data);
 });
 ```
@@ -108,7 +108,7 @@ const unsubscribe = client.onExtensionChange.subscribe((data) => {
 
 ```typescript
 // content-script.ts
-import { connectBridge } from 'extension-bridge/connector';
+import { connectBridge } from 'extension-bridge'
 
 connectBridge(); // 完成！
 ```
@@ -144,7 +144,7 @@ const bridge = createBridge({
 ### 核心模块
 
 ```
-extension-bridge/
+extension-bridge
 ├── core/
 │   ├── bridge.ts          # createBridge - 服务端定义
 │   ├── client.ts          # createClient - 客户端调用
@@ -224,14 +224,14 @@ interface Procedure<TInput = unknown, TOutput = unknown> {
   handler: (input: TInput) => Promise<TOutput> | TOutput;
 }
 
-// 自动推导 Client 类型
+// 自动推导 Client 类型 - procedure 直接映射为可调用函数
 type InferClient<TRouter> = {
-  [K in keyof TRouter]: TRouter[K] extends Procedure<infer TInput, infer TOutput>
-    ? TRouter[K]['_type'] extends 'query'
-      ? { query: (input: TInput) => Promise<TOutput> }
-      : TRouter[K]['_type'] extends 'mutation'
-        ? { mutate: (input: TInput) => Promise<TOutput> }
-        : { subscribe: (callback: (data: TOutput) => void) => () => void }
+  [K in keyof TRouter]: TRouter[K] extends Procedure<infer TInput, infer TOutput, infer TType>
+    ? TType extends 'subscription'
+      ? (callback: (data: TOutput) => void) => () => void
+      : TInput extends void
+        ? () => Promise<TOutput>
+        : (input: TInput) => Promise<TOutput>
     : never
 };
 ```
@@ -286,7 +286,7 @@ bridge.listen();
 
 ```typescript
 // content-script.ts
-import { connectBridge } from 'extension-bridge/connector';
+import { connectBridge } from 'extension-bridge';
 
 connectBridge({
   debug: process.env.NODE_ENV === 'development'
@@ -298,7 +298,7 @@ connectBridge({
 ```typescript
 import type { AppBridge } from './background/bridge';
 // page.ts
-import { createClient } from 'extension-bridge/client';
+import { createClient } from 'extension-bridge'
 
 // 创建客户端
 const bridge = createClient<AppBridge>();
@@ -308,21 +308,17 @@ await bridge.$waitForReady();
 
 // 使用 API - 完全类型安全
 async function demo() {
-  // 查询
-  const extensions = await bridge.extensions.getAll.query();
+  // 查询 / 变更 - 直接调用
+  const extensions = await bridge.extensions.getAll();
   console.log('Extensions:', extensions);
 
-  const ext = await bridge.extensions.get.query('extension-id');
+  const ext = await bridge.extensions.get('extension-id');
   console.log('Extension:', ext);
 
-  // 变更
-  await bridge.extensions.toggle.mutate({
-    id: 'extension-id',
-    enabled: false
-  });
+  await bridge.extensions.toggle({ id: 'extension-id', enabled: false });
 
-  // 订阅
-  const unsubscribe = bridge.extensions.onChanged.subscribe((event) => {
+  // 订阅 - 传入回调，返回取消订阅函数
+  const unsubscribe = bridge.extensions.onChanged((event) => {
     if (event.type === 'installed') {
       console.log('Installed:', event.data.name);
     }
@@ -337,7 +333,7 @@ async function demo() {
 
 ```typescript
 import type { AppBridge } from '../background/bridge';
-import { createClient } from 'extension-bridge/client';
+import { createClient } from 'extension-bridge'
 // hooks/useBridge.ts
 import { useEffect, useState } from 'react';
 
@@ -364,14 +360,13 @@ export function useExtensions() {
     }
 
     // 初始加载
-    appBridge.extensions.getAll
-      .query()
+    appBridge.extensions.getAll()
       .then(setExtensions)
       .finally(() => setLoading(false));
 
     // 订阅变化
-    const unsubscribe = appBridge.extensions.onChanged.subscribe(() => {
-      appBridge.extensions.getAll.query().then(setExtensions);
+    const unsubscribe = appBridge.extensions.onChanged(() => {
+      appBridge.extensions.getAll().then(setExtensions);
     });
 
     return unsubscribe;
@@ -500,7 +495,7 @@ const cached = await bridge.extensions.getAll.query();
 ### 1. 单元测试
 
 ```typescript
-import { createTestBridge } from 'extension-bridge/testing';
+import { createTestBridge } from 'extension-bridge'
 
 it('should get extensions', async () => {
   const bridge = createTestBridge({
@@ -517,7 +512,7 @@ it('should get extensions', async () => {
 ### 2. E2E 测试
 
 ```typescript
-import { loadExtension } from 'extension-bridge/testing';
+import { loadExtension } from 'extension-bridge'
 import { test } from '@playwright/test';
 
 test('should work in real browser', async ({ page, context }) => {
@@ -553,13 +548,13 @@ test('should work in real browser', async ({ page, context }) => {
 import { createBridge } from 'extension-bridge';
 
 // Web Page
-import { createClient } from 'extension-bridge/client';
+import { createClient } from 'extension-bridge'
 
 // Content Script
-import { connectBridge } from 'extension-bridge/connector';
+import { connectBridge } from 'extension-bridge'
 
 // Testing
-import { createTestBridge } from 'extension-bridge/testing';
+import { createTestBridge } from 'extension-bridge'
 ```
 
 ---
