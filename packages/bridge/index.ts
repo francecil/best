@@ -49,15 +49,25 @@ export type {
   BridgeOptions,
   ChromeApiClient,
   ChromeApiConfig,
+  DevToolsEvent,
   InferClient,
+  Middleware,
   Procedure,
   ProcedureCallable,
   ProcedureType,
+  RequestContext,
   Router,
   SubscriptionCallable,
 } from './core/types';
 export type { DefaultRouter } from './procedures';
 export { JsonRpcErrorCode } from './core/types';
+
+// Built-in middleware
+export { createLoggerMiddleware, rateLimit, validateOrigin } from './core/middleware';
+
+// Retry utility
+export { withRetry } from './core/retry';
+export type { RetryOptions } from './core/retry';
 
 // Built-in procedures
 export * from './procedures';

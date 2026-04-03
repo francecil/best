@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bridge Inspector</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div id="toolbar">
+    <button id="clear-btn" title="Clear all events">Clear</button>
+    <input id="filter-input" type="text" placeholder="Filter by path…" autocomplete="off">
+    <span id="status" class="status-disconnected">Disconnected</span>
+  </div>
+
+  <div id="main">
+    <div id="list-pane">
+      <table id="events-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Type</th>
+            <th>Path</th>
+            <th>Duration</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="events-body">
+          <tr id="empty-row">
+            <td colspan="5" class="empty">No events recorded yet.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="detail-pane">
+      <div id="detail-placeholder">Select an event to view details.</div>
+      <div id="detail-content" style="display:none">
+        <h3 id="detail-title"></h3>
+        <section>
+          <h4>Request</h4>
+          <pre id="detail-request"></pre>
+        </section>
+        <section>
+          <h4>Response / Data</h4>
+          <pre id="detail-data"></pre>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>

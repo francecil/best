@@ -6,9 +6,12 @@ import type {
   AnyProcedure,
   BridgeOptions,
   ChromeApiConfig,
+  DevToolsEvent,
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
+  Middleware,
+  RequestContext,
   Router,
   SubscriptionCleanup,
   SubscriptionEmit,
@@ -26,11 +29,26 @@ export class Bridge<TRouter extends Router> {
   private readonly procedureCache = new Map<string, AnyProcedure | null>();
   private readonly MAX_SUBSCRIPTIONS_PER_PORT = 50;
   private readonly chromeApiConfig: ChromeApiConfig | undefined;
+  private readonly middlewares: Middleware[] = [];
+  private readonly devtoolsPorts = new Set<chrome.runtime.Port>();
 
   constructor(router: TRouter, options: BridgeOptions = {}) {
     this.router = router;
     this.chromeApiConfig = options.chromeApi;
     this.logger = createLogger('Bridge', options.debug ?? false);
+  }
+
+  /**
+   * Register a middleware to intercept all requests/responses.
+   * Middlewares run in the order they are added.
+   *
+   * @example
+   * bridge.use(validateOrigin(['https://example.com']))
+   * bridge.use(rateLimit({ window: 60_000, max: 100 }))
+   */
+  use(middleware: Middleware): this {
+    this.middlewares.push(middleware);
+    return this;
   }
 
   /**
@@ -42,6 +60,15 @@ export class Bridge<TRouter extends Router> {
     // Content script uses chrome.runtime.connect({ name: 'bridge' }) — register onConnect up front.
     // (The connector does not send runtime messages with type bridge:connect.)
     chrome.runtime.onConnect.addListener((port) => {
+      // DevTools panel connects with a dedicated port name
+      if (port.name === 'bridge:devtools') {
+        this.devtoolsPorts.add(port);
+        port.onDisconnect.addListener(() => {
+          this.devtoolsPorts.delete(port);
+        });
+        return;
+      }
+
       if (port.name !== 'bridge') {
         return;
       }
@@ -70,6 +97,15 @@ export class Bridge<TRouter extends Router> {
   }
 
   /**
+   * Emit an event to all connected DevTools panels.
+   */
+  private emitDevTools(event: DevToolsEvent) {
+    for (const port of this.devtoolsPorts) {
+      port.postMessage(event);
+    }
+  }
+
+  /**
    * Handle incoming JSON-RPC message
    */
   private async handleMessage(
@@ -89,10 +125,22 @@ export class Bridge<TRouter extends Router> {
       return;
     }
 
-    const request = message;
+    let request = message as JsonRpcRequest;
+    const startTime = Date.now();
+    const ctx: RequestContext = { path: request.method, port, startTime };
+
+    this.emitDevTools({ type: 'request', id: request.id, path: request.method, data: request.params, timestamp: startTime });
 
     try {
       this.logger.debug(`→ ${request.method}`, request.params);
+
+      // Run before middleware chain
+      for (const mw of this.middlewares) {
+        if (mw.before) {
+          const modified = await mw.before(request, ctx);
+          if (modified) request = modified;
+        }
+      }
 
       const result = await this.callProcedure(
         request.method,
@@ -100,17 +148,33 @@ export class Bridge<TRouter extends Router> {
         port,
       );
 
-      const response: JsonRpcResponse = {
+      let response: JsonRpcResponse = {
         jsonrpc: '2.0',
         id: request.id,
         result,
       };
 
+      // Run after middleware chain
+      for (const mw of this.middlewares) {
+        if (mw.after) {
+          const modified = await mw.after(response, ctx);
+          if (modified) response = modified;
+        }
+      }
+
       port.postMessage(response);
       this.logger.debug(`← ${request.method}`, result);
+      this.emitDevTools({ type: 'response', id: request.id, path: request.method, data: result, duration: Date.now() - startTime, timestamp: Date.now() });
     }
     catch (error) {
       this.logger.error(`✗ ${request.method}`, error);
+
+      // Run onError middleware chain
+      for (const mw of this.middlewares) {
+        if (mw.onError) {
+          await mw.onError(error instanceof Error ? error : new Error(String(error)), request);
+        }
+      }
 
       const code = error instanceof BridgeError
         ? error.code
@@ -127,6 +191,7 @@ export class Bridge<TRouter extends Router> {
       };
 
       port.postMessage(response);
+      this.emitDevTools({ type: 'error', id: request.id, path: request.method, data: error instanceof Error ? error.message : String(error), duration: Date.now() - startTime, timestamp: Date.now() });
     }
   }
 

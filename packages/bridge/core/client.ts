@@ -13,6 +13,7 @@ import type {
 } from './types';
 import { BridgeError } from './error';
 import { createLogger } from './logger';
+import { withRetry } from './retry';
 
 export class BridgeClient<TRouter extends Router> {
   /** 双向连接通道 port */
@@ -200,16 +201,9 @@ export class BridgeClient<TRouter extends Router> {
   }
 
   /**
-   * Send RPC request
+   * Send RPC request (single attempt)
    */
-  private async request<TResult = unknown>(
-    method: string,
-    params?: unknown,
-  ): Promise<TResult> {
-    if (!this.ready || !this.port) {
-      await this.readyPromise;
-    }
-
+  private sendRequest<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
     const id = ++this.requestId;
     const timeout = this.options.timeout!;
 
@@ -235,6 +229,26 @@ export class BridgeClient<TRouter extends Router> {
       this.logger.debug(`→ ${method}`, params);
       this.port!.postMessage(request);
     });
+  }
+
+  /**
+   * Send RPC request with optional retry
+   */
+  private async request<TResult = unknown>(
+    method: string,
+    params?: unknown,
+  ): Promise<TResult> {
+    if (!this.ready || !this.port) {
+      await this.readyPromise;
+    }
+
+    const retry = this.options.retry!;
+
+    if (retry.attempts > 0) {
+      return withRetry(() => this.sendRequest<TResult>(method, params), retry);
+    }
+
+    return this.sendRequest<TResult>(method, params);
   }
 
   /**

@@ -159,7 +159,60 @@ export interface ClientOptions extends BridgeOptions {
   retry?: {
     attempts: number;
     delay: number;
+    backoff?: 'linear' | 'exponential';
   };
+}
+
+// ========================================
+// Middleware Types
+// ========================================
+
+export interface RequestContext {
+  /** Dot-notation path of the procedure, e.g. "storage.local.get" */
+  path: string;
+  /** The chrome.runtime.Port for this connection */
+  port: chrome.runtime.Port;
+  /** Unix timestamp (ms) when the request was received */
+  startTime: number;
+}
+
+export interface Middleware {
+  /**
+   * Runs before the procedure is called.
+   * Return a modified request to replace it, or throw to abort with an error.
+   */
+  before?: (
+    req: JsonRpcRequest,
+    ctx: RequestContext,
+  ) => Promise<JsonRpcRequest | void> | JsonRpcRequest | void;
+
+  /**
+   * Runs after a successful procedure call.
+   * Return a modified response to replace it.
+   */
+  after?: (
+    res: JsonRpcResponse,
+    ctx: RequestContext,
+  ) => Promise<JsonRpcResponse | void> | JsonRpcResponse | void;
+
+  /**
+   * Runs when a procedure throws an error.
+   */
+  onError?: (error: Error, req: JsonRpcRequest) => Promise<void> | void;
+}
+
+// ========================================
+// DevTools Types
+// ========================================
+
+export interface DevToolsEvent {
+  type: 'request' | 'response' | 'error' | 'subscribe' | 'unsubscribe';
+  id: number | string;
+  path: string;
+  data: unknown;
+  /** Duration in ms — present on response and error events */
+  duration?: number;
+  timestamp: number;
 }
 
 // ========================================

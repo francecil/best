@@ -98,10 +98,10 @@ export class BridgeError extends Error {
 // 在 bridge.ts 和 client.ts 中使用统一的错误类
 ```
 
-#### 1.3 重试机制
+#### 1.3 重试机制 ✅
 
 ```typescript
-// core/retry.ts
+// core/retry.ts — 已实现
 export async function withRetry<T>(
   fn: () => Promise<T>,
   options: {
@@ -109,11 +109,8 @@ export async function withRetry<T>(
     delay: number;
     backoff?: 'linear' | 'exponential';
   }
-): Promise<T> {
-  // 实现重试逻辑
-}
-
-// 在 client.ts 中集成
+): Promise<T>
+// 已在 client.ts 中集成，通过 ClientOptions.retry 配置
 ```
 
 ---
@@ -395,19 +392,20 @@ export default {
 
 ### 重要 (P1)
 
-8. ⏳ 类型生成工具
-9. ⏳ DevTools 面板
-10. ⏳ 中间件系统
-11. ⏳ E2E 测试
-12. ⏳ 完整文档
+8. ✅ 类型生成工具 (`scripts/generate-types.ts`)
+9. ✅ DevTools 面板 (`devtools/`)
+10. ✅ 中间件系统 (`core/middleware.ts`, `bridge.use()`)
+11. ✅ 重试机制 (`core/retry.ts`, `ClientOptions.retry.backoff`)
+12. ✅ E2E 测试 (`__tests__/e2e/`, `playwright.config.ts`)
+13. ✅ 完整文档 (README.md, ARCHITECTURE.md 更新)
 
 ### 可选 (P2)
 
-13. ⏳ 批量请求
-14. ⏳ 缓存系统
-15. ⏳ 流式响应
-16. ⏳ 性能测试
-17. ⏳ 更多示例
+14. ⏳ 批量请求
+15. ⏳ 缓存系统
+16. ⏳ 流式响应
+17. ⏳ 性能测试
+18. ⏳ 更多示例
 
 ---
 
