@@ -98,10 +98,10 @@ export class BridgeError extends Error {
 // 在 bridge.ts 和 client.ts 中使用统一的错误类
 ```
 
-#### 1.3 重试机制
+#### 1.3 重试机制 ✅
 
 ```typescript
-// core/retry.ts
+// core/retry.ts — 已实现
 export async function withRetry<T>(
   fn: () => Promise<T>,
   options: {
@@ -109,11 +109,8 @@ export async function withRetry<T>(
     delay: number;
     backoff?: 'linear' | 'exponential';
   }
-): Promise<T> {
-  // 实现重试逻辑
-}
-
-// 在 client.ts 中集成
+): Promise<T>
+// 已在 client.ts 中集成，通过 ClientOptions.retry 配置
 ```
 
 ---
@@ -390,24 +387,26 @@ export default {
 3. ✅ 示例代码
 4. ✅ 完善错误处理
 5. ✅ 添加更多内置 Procedures
-6. ✅ 单元测试
+6. ✅ 单元测试/E2E测试
 7. ✅ 支持通用 Procedures 调用
 
 ### 重要 (P1)
 
-8. ⏳ 类型生成工具
-9. ⏳ DevTools 面板
-10. ⏳ 中间件系统
-11. ⏳ E2E 测试
-12. ⏳ 完整文档
+8. ✅ 类型生成工具
+9. ✅ DevTools 面板
+10. ✅ 中间件系统
+11. ✅ 重试机制
 
 ### 可选 (P2)
 
-13. ⏳ 批量请求
-14. ⏳ 缓存系统
-15. ⏳ 流式响应
+12. ⏳ 完整文档
+13. ⏳ 批量请求: 通过中间件实现？
+14. ⏳ 缓存系统: 通过中间件实现？
+15. ⏳ 流式响应: 通过中间件实现？
 16. ⏳ 性能测试
-17. ⏳ 更多示例
+17. ⏳ 应用隔离: 通过中间件实现？
+18. ⏳ 信任调用: 通过中间件实现？
+19. ⏳ 更多示例
 
 ---
 

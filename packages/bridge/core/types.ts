@@ -159,7 +159,66 @@ export interface ClientOptions extends BridgeOptions {
   retry?: {
     attempts: number;
     delay: number;
+    backoff?: 'linear' | 'exponential';
   };
+}
+
+// ========================================
+// Middleware Types
+// ========================================
+
+/**
+ * Mutable context object passed through the middleware chain for every
+ * JSON-RPC request. Follows the Koa "onion" model.
+ *
+ * - **Before `next()`**: read/modify `ctx.req` to change the incoming request.
+ * - **After `next()`**: read/modify `ctx.res` to change the outgoing response.
+ * - **On error**: wrap `await next()` in try/catch to intercept failures.
+ */
+export interface BridgeContext {
+  /** The JSON-RPC request. Mutate before calling next() to change the input. */
+  req: JsonRpcRequest;
+  /**
+   * The JSON-RPC response. Populated after next() completes successfully.
+   * Mutate after calling next() to transform the output.
+   */
+  res: JsonRpcResponse | undefined;
+  /** The chrome.runtime.Port for this connection */
+  port: chrome.runtime.Port;
+  /** Unix timestamp (ms) when the request was received */
+  startTime: number;
+}
+
+/** Call next() to pass control to the next middleware (or the procedure). */
+export type Next = () => Promise<void>;
+
+/**
+ * Koa-style middleware function.
+ *
+ * @example
+ * bridge.use(async (ctx, next) => {
+ *   console.log(`→ ${ctx.path}`, ctx.req.params)
+ *   await next()
+ *   console.log(`← ${ctx.path} (${Date.now() - ctx.startTime}ms)`)
+ * })
+ */
+export type MiddlewareFn = (ctx: BridgeContext, next: Next) => Promise<void>;
+
+/** Alias — the public name for MiddlewareFn. */
+export type Middleware = MiddlewareFn;
+
+// ========================================
+// DevTools Types
+// ========================================
+
+export interface DevToolsEvent {
+  type: 'request' | 'response' | 'error' | 'subscribe' | 'unsubscribe';
+  id: number | string;
+  path: string;
+  data: unknown;
+  /** Duration in ms — present on response and error events */
+  duration?: number;
+  timestamp: number;
 }
 
 // ========================================
