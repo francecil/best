@@ -206,9 +206,170 @@ subscription((emit) => {
 Bridge 遵循最小权限原则：
 
 - ✅ **不绕过 Chrome 权限模型** - 仍需在 manifest.json 声明权限
-- ✅ **来源验证** - 可配置 allowedOrigins 白名单
+- ✅ **来源验证** - 可通过中间件配置 allowedOrigins 白名单
 - ✅ **API 白名单** - 只暴露明确定义的 Procedures
 - ✅ **类型安全** - 编译时检查，减少运行时错误
+
+---
+
+## 🛡️ 中间件 (Middleware)
+
+在所有请求前/后运行拦截器，支持认证、限流、日志等场景：
+
+```typescript
+import { createBridge, validateOrigin, rateLimit, createLoggerMiddleware } from 'extension-bridge';
+
+const bridge = createBridge(router);
+
+// 来源白名单验证
+bridge.use(validateOrigin(['https://example.com', 'https://app.example.com']));
+
+// 限流：每分钟最多 100 次请求
+bridge.use(rateLimit({ window: 60_000, max: 100 }));
+
+// 请求/响应日志
+bridge.use(createLoggerMiddleware({ level: 'debug' }));
+
+// 自定义中间件
+bridge.use({
+  async before(req, ctx) {
+    if (!isAuthenticated(ctx.port.sender?.origin)) {
+      throw new BridgeError(JsonRpcErrorCode.Unauthorized, 'Not authenticated');
+    }
+  },
+  async after(res, ctx) {
+    console.log(`${ctx.path} completed in ${Date.now() - ctx.startTime}ms`);
+  },
+  async onError(error, req) {
+    reportError(error, req.method);
+  },
+});
+
+bridge.listen();
+```
+
+### 中间件接口
+
+```typescript
+interface Middleware {
+  // 在 Procedure 执行前运行，可修改 request 或 throw 中止请求
+  before?: (req: JsonRpcRequest, ctx: RequestContext) => Promise<JsonRpcRequest | void> | JsonRpcRequest | void;
+  // 在 Procedure 执行后运行，可修改 response
+  after?: (res: JsonRpcResponse, ctx: RequestContext) => Promise<JsonRpcResponse | void> | JsonRpcResponse | void;
+  // 在 Procedure 抛出异常时运行
+  onError?: (error: Error, req: JsonRpcRequest) => Promise<void> | void;
+}
+
+interface RequestContext {
+  path: string;           // e.g. "storage.local.get"
+  port: chrome.runtime.Port;
+  startTime: number;      // Date.now()
+}
+```
+
+---
+
+## 🔁 重试机制 (Retry)
+
+客户端自动重试失败的请求：
+
+```typescript
+import { createClient } from 'extension-bridge';
+
+const bridge = createClient({
+  retry: {
+    attempts: 3,          // 额外重试次数（默认 0 = 不重试）
+    delay: 500,           // 基础延迟 ms
+    backoff: 'exponential', // 'linear' | 'exponential' | undefined（固定延迟）
+  },
+});
+```
+
+也可单独使用工具函数：
+
+```typescript
+import { withRetry } from 'extension-bridge';
+
+const data = await withRetry(
+  () => fetch('https://api.example.com/data').then(r => r.json()),
+  { attempts: 3, delay: 1000, backoff: 'exponential' }
+);
+```
+
+---
+
+## 🔍 DevTools 面板
+
+Bridge 内置 Chrome DevTools 面板支持，可实时查看所有 API 调用、请求详情和耗时。
+
+### 启用 DevTools 面板
+
+1. 在 `manifest.json` 中添加：
+
+```json
+{
+  "devtools_page": "devtools/devtools.html"
+}
+```
+
+2. 将 `devtools/` 目录的文件复制到你的扩展项目，编译后加载。
+
+3. 在 Chrome DevTools 中打开 **Bridge** 标签页，即可实时查看所有 Bridge 调用。
+
+面板功能：
+- 实时显示 request / response / error / subscribe 事件
+- 点击事件查看完整 Request Params 和 Response Data
+- 按 path 过滤事件
+- 清除日志
+
+---
+
+## 🔧 类型生成工具
+
+从 Service Worker 的 Bridge 定义自动生成客户端类型文件：
+
+```bash
+# 安装 tsx（如未安装）
+npm install -D tsx
+
+# 生成类型文件
+npx tsx scripts/generate-types.ts \
+  --input ./src/background.ts \
+  --output ./src/bridge-client.d.ts
+```
+
+要求 background.ts 中 `router` 变量已 `export`：
+
+```typescript
+// background.ts
+export const router = { ... };   // ← 必须 export
+createBridge(router).listen();
+```
+
+生成的文件：
+
+```typescript
+// bridge-client.d.ts (auto-generated)
+import type { InferClient } from 'extension-bridge';
+import type { router } from '../background';
+export type BridgeClient = InferClient<typeof router>;
+```
+
+---
+
+## 🧪 E2E 测试
+
+使用 Playwright 对真实 Chrome 扩展进行端到端测试：
+
+```bash
+# 安装依赖
+pnpm install
+
+# 构建测试 fixture 扩展 + 运行 E2E 测试
+pnpm run test:e2e
+```
+
+测试文件位于 `__tests__/e2e/`，使用 `chromium.launchPersistentContext` 加载扩展后测试完整的通信流程。
 
 ---
 
@@ -218,4 +379,4 @@ Bridge 遵循最小权限原则：
 - 完整的架构设计
 - 高级用法（React Hook、自定义 Procedure）
 - 性能优化和最佳实践
-- 开发者体验优化（日志、DevTools）
+- 中间件系统和 DevTools 集成
