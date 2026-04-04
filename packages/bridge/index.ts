@@ -45,32 +45,10 @@ export { createClient } from './core/client';
 export { BridgeError } from './core/error';
 
 export { mutation, query, subscription } from './core/procedure';
-export type {
-  AnyProcedure,
-  BridgeContext,
-  BridgeOptions,
-  ChromeApiClient,
-  ChromeApiConfig,
-  DevToolsEvent,
-  InferClient,
-  Middleware,
-  MiddlewareFn,
-  Next,
-  Procedure,
-  ProcedureCallable,
-  ProcedureType,
-  Router,
-  SubscriptionCallable,
-} from './core/types';
-export type { DefaultRouter } from './procedures';
-export { JsonRpcErrorCode } from './core/types';
+export * from './core/types';
 
 // Built-in middleware
-export { createLoggerMiddleware, rateLimit, validateOrigin } from './middlewares/built-in';
-
-// Retry utility
-export { withRetry } from './middlewares/retry';
-export type { RetryOptions } from './middlewares/retry';
+export * from './middlewares';
 
 // Built-in procedures
 export * from './procedures';

@@ -3,17 +3,21 @@
  */
 
 import type {
+  BaseContext,
   ChromeApiClient,
   ClientOptions,
   InferClient,
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
+  Middleware,
+  Next,
   Router,
 } from './types';
 import { BridgeError } from './error';
 import { createLogger } from './logger';
-import { withRetry } from '../middlewares/retry';
+import { retry } from '../middlewares/retry';
+import { createLoggerMiddleware } from '../middlewares/logger';
 
 export class BridgeClient<TRouter extends Router> {
   /** 双向连接通道 port */
@@ -42,6 +46,7 @@ export class BridgeClient<TRouter extends Router> {
 
   private readonly logger: ReturnType<typeof createLogger>;
   private readonly options: ClientOptions;
+  private readonly middlewares: Middleware[];
 
   constructor(options: ClientOptions = {}) {
     this.options = {
@@ -55,12 +60,34 @@ export class BridgeClient<TRouter extends Router> {
     };
 
     this.logger = createLogger('Client', this.options.debug ?? false);
+    this.middlewares = this.buildMiddlewares();
 
     this.readyPromise = new Promise((resolve) => {
       this.resolveReady = resolve;
     });
 
     this.init();
+  }
+
+  /**
+   * Build the internal middleware stack from ClientOptions.
+   * Logger is outermost (sees the full duration including retries).
+   * Retry is inner (wraps only the sendRequest call).
+   */
+  private buildMiddlewares(): Middleware[] {
+    const mws: Middleware[] = [];
+
+    if (this.options.logger) {
+      const opts = typeof this.options.logger === 'object' ? this.options.logger : {};
+      mws.push(createLoggerMiddleware(opts));
+    }
+
+    const r = this.options.retry;
+    if (r && r.attempts > 0) {
+      mws.push(retry(r));
+    }
+
+    return mws;
   }
 
   /**
@@ -232,7 +259,7 @@ export class BridgeClient<TRouter extends Router> {
   }
 
   /**
-   * Send RPC request with optional retry
+   * Send RPC request through the middleware pipeline.
    */
   private async request<TResult = unknown>(
     method: string,
@@ -242,13 +269,30 @@ export class BridgeClient<TRouter extends Router> {
       await this.readyPromise;
     }
 
-    const retry = this.options.retry!;
+    const ctx: BaseContext = {
+      req: { jsonrpc: '2.0', id: 0, method, params },
+      res: undefined,
+      startTime: Date.now(),
+    };
 
-    if (retry.attempts > 0) {
-      return withRetry(() => this.sendRequest<TResult>(method, params), retry);
-    }
+    // Core handler: send over the MessagePort and populate ctx.res on success.
+    // Each call creates a fresh requestId, so retries get independent IDs.
+    const coreHandler: Next = async () => {
+      const result = await this.sendRequest<TResult>(method, params);
+      ctx.res = { jsonrpc: '2.0', id: ctx.req.id, result };
+    };
 
-    return this.sendRequest<TResult>(method, params);
+    const dispatch = (i: number): Next => {
+      if (i === this.middlewares.length) return coreHandler;
+      const mw = this.middlewares[i]!;
+      return () => mw(ctx, dispatch(i + 1));
+    };
+
+    await dispatch(0)();
+
+    if (ctx.res && 'result' in ctx.res) return ctx.res.result as TResult;
+    if (ctx.res && 'error' in ctx.res) throw BridgeError.fromResponse(ctx.res.error);
+    throw new Error(`No response for request: ${method}`);
   }
 
   /**

@@ -1,73 +1,109 @@
+import type { Router } from '../core/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { withRetry } from './retry';
+import { query } from '../core/procedure';
+import { retry } from './retry';
+import { echoRouter, flush, setupBridge } from './test-utils';
 
-describe('withRetry()', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+describe('retry()', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
 
-  it('returns the result on first success', async () => {
-    const fn = vi.fn().mockResolvedValue('ok');
-    const result = await withRetry(fn, { attempts: 3, delay: 100 });
-    expect(result).toBe('ok');
-    expect(fn).toHaveBeenCalledTimes(1);
-  });
+  it('passes through when the procedure succeeds on the first attempt', async () => {
+    const mw = retry({ attempts: 3, delay: 100 });
+    const { sendFromPage, mockPort } = setupBridge(echoRouter, [mw]);
 
-  it('retries and succeeds on the second attempt', async () => {
-    const fn = vi.fn()
-      .mockRejectedValueOnce(new Error('fail'))
-      .mockResolvedValue('ok');
-
-    const promise = withRetry(fn, { attempts: 2, delay: 100 });
+    sendFromPage({ jsonrpc: '2.0', id: 1, method: 'echo', params: 'hi' });
     await vi.runAllTimersAsync();
-    const result = await promise;
+    await flush();
 
-    expect(result).toBe('ok');
-    expect(fn).toHaveBeenCalledTimes(2);
+    const response = mockPort.postMessage.mock.calls.find((args) => args[0].id === 1);
+    expect(response![0].result).toBe('hi');
   });
 
-  it('throws after exhausting all attempts', async () => {
-    const fn = vi.fn().mockRejectedValue(new Error('always fails'));
+  it('retries and succeeds on a later attempt', async () => {
+    let calls = 0;
+    const router: Router = {
+      flaky: query(async () => {
+        calls++;
+        if (calls < 3) throw new Error('not yet');
+        return 'ok';
+      }),
+    };
+    const mw = retry({ attempts: 3, delay: 50 });
+    const { sendFromPage, mockPort } = setupBridge(router, [mw]);
 
-    // Run timers concurrently with the promise so rejections are always attached
-    const [result] = await Promise.allSettled([
-      withRetry(fn, { attempts: 2, delay: 50 }),
-      vi.runAllTimersAsync(),
-    ]);
+    sendFromPage({ jsonrpc: '2.0', id: 1, method: 'flaky' });
+    await vi.runAllTimersAsync();
+    await flush();
 
-    expect(result.status).toBe('rejected');
-    expect((result as PromiseRejectedResult).reason.message).toBe('always fails');
-    expect(fn).toHaveBeenCalledTimes(3); // initial + 2 retries
+    expect(calls).toBe(3);
+    const response = mockPort.postMessage.mock.calls.find((args) => args[0].id === 1);
+    expect(response![0].result).toBe('ok');
+  });
+
+  it('sends an error response after exhausting all attempts', async () => {
+    const router: Router = {
+      fail: query(async () => { throw new Error('always fails'); }),
+    };
+    const mw = retry({ attempts: 2, delay: 50 });
+    const { sendFromPage, mockPort } = setupBridge(router, [mw]);
+
+    sendFromPage({ jsonrpc: '2.0', id: 1, method: 'fail' });
+    await vi.runAllTimersAsync();
+    await flush();
+
+    const response = mockPort.postMessage.mock.calls.find(
+      (args) => args[0].id === 1 && 'error' in args[0],
+    );
+    expect(response).toBeDefined();
   });
 
   it('does not retry when attempts = 0', async () => {
-    const fn = vi.fn().mockRejectedValue(new Error('no retry'));
+    let calls = 0;
+    const router: Router = {
+      fail: query(async () => { calls++; throw new Error('boom'); }),
+    };
+    const mw = retry({ attempts: 0, delay: 100 });
+    const { sendFromPage, mockPort } = setupBridge(router, [mw]);
 
-    await expect(withRetry(fn, { attempts: 0, delay: 100 })).rejects.toThrow('no retry');
-    expect(fn).toHaveBeenCalledTimes(1);
+    sendFromPage({ jsonrpc: '2.0', id: 1, method: 'fail' });
+    await vi.runAllTimersAsync();
+    await flush();
+
+    expect(calls).toBe(1);
+    const response = mockPort.postMessage.mock.calls.find(
+      (args) => args[0].id === 1 && 'error' in args[0],
+    );
+    expect(response).toBeDefined();
   });
 
   it('uses exponential backoff delays', async () => {
     const delays: number[] = [];
+    // Capture BEFORE spying to avoid infinite recursion
     const originalSetTimeout = globalThis.setTimeout;
-
     vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn: any, ms?: number) => {
       if (ms !== undefined && ms > 0) delays.push(ms);
       return originalSetTimeout(fn, 0) as any;
     });
 
-    const fn = vi.fn()
-      .mockRejectedValueOnce(new Error('fail'))
-      .mockRejectedValueOnce(new Error('fail'))
-      .mockResolvedValue('ok');
+    let calls = 0;
+    const router: Router = {
+      flaky: query(async () => {
+        calls++;
+        if (calls < 3) throw new Error('fail');
+        return 'ok';
+      }),
+    };
+    const mw = retry({ attempts: 2, delay: 100, backoff: 'exponential' });
+    const { sendFromPage } = setupBridge(router, [mw]);
 
-    const promise = withRetry(fn, { attempts: 2, delay: 100, backoff: 'exponential' });
+    sendFromPage({ jsonrpc: '2.0', id: 1, method: 'flaky' });
     await vi.runAllTimersAsync();
-    await promise;
+    await flush();
 
     expect(delays[0]).toBe(100); // 100 * 2^0
     expect(delays[1]).toBe(200); // 100 * 2^1
@@ -76,20 +112,25 @@ describe('withRetry()', () => {
   it('uses linear backoff delays', async () => {
     const delays: number[] = [];
     const originalSetTimeout = globalThis.setTimeout;
-
     vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn: any, ms?: number) => {
       if (ms !== undefined && ms > 0) delays.push(ms);
       return originalSetTimeout(fn, 0) as any;
     });
 
-    const fn = vi.fn()
-      .mockRejectedValueOnce(new Error('fail'))
-      .mockRejectedValueOnce(new Error('fail'))
-      .mockResolvedValue('ok');
+    let calls = 0;
+    const router: Router = {
+      flaky: query(async () => {
+        calls++;
+        if (calls < 3) throw new Error('fail');
+        return 'ok';
+      }),
+    };
+    const mw = retry({ attempts: 2, delay: 100, backoff: 'linear' });
+    const { sendFromPage } = setupBridge(router, [mw]);
 
-    const promise = withRetry(fn, { attempts: 2, delay: 100, backoff: 'linear' });
+    sendFromPage({ jsonrpc: '2.0', id: 1, method: 'flaky' });
     await vi.runAllTimersAsync();
-    await promise;
+    await flush();
 
     expect(delays[0]).toBe(100); // 100 * 1
     expect(delays[1]).toBe(200); // 100 * 2
@@ -98,20 +139,25 @@ describe('withRetry()', () => {
   it('uses constant delay when no backoff is set', async () => {
     const delays: number[] = [];
     const originalSetTimeout = globalThis.setTimeout;
-
     vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn: any, ms?: number) => {
       if (ms !== undefined && ms > 0) delays.push(ms);
       return originalSetTimeout(fn, 0) as any;
     });
 
-    const fn = vi.fn()
-      .mockRejectedValueOnce(new Error('fail'))
-      .mockRejectedValueOnce(new Error('fail'))
-      .mockResolvedValue('ok');
+    let calls = 0;
+    const router: Router = {
+      flaky: query(async () => {
+        calls++;
+        if (calls < 3) throw new Error('fail');
+        return 'ok';
+      }),
+    };
+    const mw = retry({ attempts: 2, delay: 150 });
+    const { sendFromPage } = setupBridge(router, [mw]);
 
-    const promise = withRetry(fn, { attempts: 2, delay: 150 });
+    sendFromPage({ jsonrpc: '2.0', id: 1, method: 'flaky' });
     await vi.runAllTimersAsync();
-    await promise;
+    await flush();
 
     expect(delays[0]).toBe(150);
     expect(delays[1]).toBe(150);

@@ -175,11 +175,7 @@ export function enableDebug() {
 
 ```typescript
 // core/middleware.ts
-export interface Middleware {
-  before?: (req: JsonRpcRequest) => Promise<JsonRpcRequest>;
-  after?: (res: JsonRpcResponse) => Promise<JsonRpcResponse>;
-  onError?: (error: Error) => Promise<void>;
-}
+export type Middleware = (ctx: BaseContext, next: Next) => Promise<void>;
 
 // 使用
 bridge.use(validateOrigin(['https://example.com']));

@@ -1,6 +1,4 @@
-/**
- * Retry utility for Bridge client requests
- */
+import type { Middleware } from '../core/types';
 
 export interface RetryOptions {
   /** Number of additional attempts after the first failure (0 = no retry) */
@@ -16,29 +14,32 @@ export interface RetryOptions {
 }
 
 /**
- * Execute `fn`, retrying on failure up to `options.attempts` additional times.
+ * Retries the downstream middleware chain (and procedure) on failure.
+ * Code after `next()` in this middleware only runs on the final successful attempt.
  *
  * @example
- * const result = await withRetry(() => fetch('...'), { attempts: 3, delay: 500, backoff: 'exponential' })
+ * bridge.use(retry({ attempts: 3, delay: 500, backoff: 'exponential' }))
  */
-export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions): Promise<T> {
-  let lastError: unknown;
+export function retry(options: RetryOptions): Middleware {
+  return async (ctx, next) => {
+    let lastError: unknown;
 
-  for (let attempt = 0; attempt <= options.attempts; attempt++) {
-    try {
-      return await fn();
-    }
-    catch (error) {
-      lastError = error;
+    for (let attempt = 0; attempt <= options.attempts; attempt++) {
+      try {
+        await next();
+        return;
+      }
+      catch (error) {
+        lastError = error;
 
-      if (attempt < options.attempts) {
-        const wait = getDelay(options, attempt + 1);
-        await sleep(wait);
+        if (attempt < options.attempts) {
+          await sleep(getDelay(options, attempt + 1));
+        }
       }
     }
-  }
 
-  throw lastError;
+    throw lastError;
+  };
 }
 
 function getDelay(options: RetryOptions, attempt: number): number {

@@ -161,6 +161,8 @@ export interface ClientOptions extends BridgeOptions {
     delay: number;
     backoff?: 'linear' | 'exponential';
   };
+  /** Enable the logger middleware on the client pipeline */
+  logger?: boolean | { level?: 'debug' | 'info' };
 }
 
 // ========================================
@@ -168,14 +170,10 @@ export interface ClientOptions extends BridgeOptions {
 // ========================================
 
 /**
- * Mutable context object passed through the middleware chain for every
- * JSON-RPC request. Follows the Koa "onion" model.
- *
- * - **Before `next()`**: read/modify `ctx.req` to change the incoming request.
- * - **After `next()`**: read/modify `ctx.res` to change the outgoing response.
- * - **On error**: wrap `await next()` in try/catch to intercept failures.
+ * Base context shared by both server (Bridge) and client (BridgeClient) middleware.
+ * Contains only the fields that every middleware environment provides.
  */
-export interface BridgeContext {
+export interface BaseContext {
   /** The JSON-RPC request. Mutate before calling next() to change the input. */
   req: JsonRpcRequest;
   /**
@@ -183,29 +181,42 @@ export interface BridgeContext {
    * Mutate after calling next() to transform the output.
    */
   res: JsonRpcResponse | undefined;
-  /** The chrome.runtime.Port for this connection */
-  port: chrome.runtime.Port;
   /** Unix timestamp (ms) when the request was received */
   startTime: number;
+}
+
+/**
+ * Server-specific context — extends BaseContext with the chrome.runtime.Port.
+ * Used exclusively in the Bridge (service worker) middleware pipeline.
+ *
+ * - **Before `next()`**: read/modify `ctx.req` to change the incoming request.
+ * - **After `next()`**: read/modify `ctx.res` to change the outgoing response.
+ * - **On error**: wrap `await next()` in try/catch to intercept failures.
+ */
+export interface BridgeContext extends BaseContext {
+  /** The chrome.runtime.Port for this connection */
+  port: chrome.runtime.Port;
 }
 
 /** Call next() to pass control to the next middleware (or the procedure). */
 export type Next = () => Promise<void>;
 
 /**
- * Koa-style middleware function.
+ * Koa-style middleware function. Works on both the Bridge (server) and
+ * BridgeClient (client) pipelines.
+ *
+ * Typed against BaseContext — the shared fields available in both environments.
+ * Server-specific middleware that needs the chrome.runtime.Port casts the context:
+ * `const port = (ctx as BridgeContext).port`
  *
  * @example
  * bridge.use(async (ctx, next) => {
- *   console.log(`→ ${ctx.path}`, ctx.req.params)
+ *   console.log(`→ ${ctx.req.method}`, ctx.req.params)
  *   await next()
- *   console.log(`← ${ctx.path} (${Date.now() - ctx.startTime}ms)`)
+ *   console.log(`← ${ctx.req.method} (${Date.now() - ctx.startTime}ms)`)
  * })
  */
-export type MiddlewareFn = (ctx: BridgeContext, next: Next) => Promise<void>;
-
-/** Alias — the public name for MiddlewareFn. */
-export type Middleware = MiddlewareFn;
+export type Middleware = (ctx: BaseContext, next: Next) => Promise<void>;
 
 // ========================================
 // DevTools Types
