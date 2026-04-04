@@ -1,6 +1,6 @@
-# FUTU 基建浏览器拓展
+# 基建浏览器拓展
 
-基于 [WXT](https://wxt.dev/) 的 Chromium 扩展，集成 [`extension-bridge`](https://github.com/your-org/extension-bridge)（workspace），用于在受控前提下让普通网页通过扩展进程调用 `chrome.management` 等 API。
+基于 [WXT](https://wxt.dev/) 的 Chromium 扩展，集成 [`extension-bridge`](https://github.com/francecil/best)，用于在受控前提下让普通网页通过扩展进程调用 `chrome.management` 等 API。
 
 ## extension-bridge 演示页（已安装扩展列表）
 
