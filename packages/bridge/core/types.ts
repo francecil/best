@@ -144,6 +144,8 @@ export interface BridgeOptions {
   timeout?: number;
   /** Enable generic Chrome API passthrough for unregistered procedures */
   chromeApi?: ChromeApiConfig;
+  /** Enable the logger middleware on the bridge pipeline */
+  logger?: boolean | { level?: 'debug' | 'info' };
 }
 
 // ========================================
@@ -187,11 +189,7 @@ export interface BaseContext {
 
 /**
  * Server-specific context — extends BaseContext with the chrome.runtime.Port.
- * Used exclusively in the Bridge (service worker) middleware pipeline.
- *
- * - **Before `next()`**: read/modify `ctx.req` to change the incoming request.
- * - **After `next()`**: read/modify `ctx.res` to change the outgoing response.
- * - **On error**: wrap `await next()` in try/catch to intercept failures.
+ * Only available in the Bridge (service worker) middleware pipeline.
  */
 export interface BridgeContext extends BaseContext {
   /** The chrome.runtime.Port for this connection */
@@ -202,12 +200,16 @@ export interface BridgeContext extends BaseContext {
 export type Next = () => Promise<void>;
 
 /**
- * Koa-style middleware function. Works on both the Bridge (server) and
+ * Generic Koa-style middleware. Works on **both** the Bridge (server) and
  * BridgeClient (client) pipelines.
  *
- * Typed against BaseContext — the shared fields available in both environments.
- * Server-specific middleware that needs the chrome.runtime.Port casts the context:
- * `const port = (ctx as BridgeContext).port`
+ * Receives `BaseContext` — the fields common to both environments.
+ * Use this type for reusable middleware (e.g. logging, retry) that doesn't
+ * need access to the underlying chrome.runtime.Port.
+ *
+ * - **Before `next()`**: read/modify `ctx.req` to change the request.
+ * - **After `next()`**: read/modify `ctx.res` to transform the response.
+ * - **On error**: wrap `await next()` in try/catch to intercept failures.
  *
  * @example
  * bridge.use(async (ctx, next) => {
@@ -217,6 +219,23 @@ export type Next = () => Promise<void>;
  * })
  */
 export type Middleware = (ctx: BaseContext, next: Next) => Promise<void>;
+
+/**
+ * Server-only Koa-style middleware. Can only be passed to `bridge.use()`.
+ *
+ * Receives `BridgeContext`, which extends `BaseContext` with `ctx.port`
+ * (the `chrome.runtime.Port` of the connected page). Use this type when
+ * your middleware needs to inspect the sender — e.g. for origin validation
+ * or per-connection rate limiting.
+ *
+ * @example
+ * bridge.use(async (ctx, next) => {
+ *   const origin = ctx.port.sender?.origin
+ *   if (origin !== 'https://example.com') throw new BridgeError(JsonRpcErrorCode.Forbidden, 'blocked')
+ *   await next()
+ * })
+ */
+export type ServerMiddleware = (ctx: BridgeContext, next: Next) => Promise<void>;
 
 // ========================================
 // DevTools Types

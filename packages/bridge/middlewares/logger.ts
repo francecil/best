@@ -1,4 +1,5 @@
 import type { Middleware } from '../core/types';
+import { createLogger } from '../utils/logger';
 
 export interface LoggerMiddlewareOptions {
   level?: 'debug' | 'info';
@@ -14,22 +15,20 @@ export interface LoggerMiddlewareOptions {
  */
 export function createLoggerMiddleware(options: LoggerMiddlewareOptions = {}): Middleware {
   const level = options.level ?? 'debug';
-  const prefix = '[Bridge]';
-
-  const log = (...args: unknown[]) =>
-    level === 'debug' ? console.debug(prefix, ...args) : console.info(prefix, ...args);
+  // Always enabled — the user opts in by adding the middleware.
+  const logger = createLogger('Bridge', true);
 
   return async (ctx, next) => {
-    log(`→ ${ctx.req.method}`, ctx.req.params);
+    logger[level](`→ ${ctx.req.method}`, ctx.req.params);
     try {
       await next();
       const duration = Date.now() - ctx.startTime;
       const result = ctx.res && 'result' in ctx.res ? ctx.res.result : ctx.res;
-      log(`← ${ctx.req.method} (${duration}ms)`, result);
+      logger[level](`← ${ctx.req.method} (${duration}ms)`, result);
     }
     catch (error) {
       const duration = Date.now() - ctx.startTime;
-      console.error(prefix, `✗ ${ctx.req.method} (${duration}ms)`, error);
+      logger.error(`${ctx.req.method} (${duration}ms)`, error);
       throw error;
     }
   };

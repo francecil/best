@@ -1,6 +1,6 @@
 import { BridgeError } from '../core/error';
 import { JsonRpcErrorCode } from '../core/types';
-import type { BridgeContext, Middleware } from '../core/types';
+import type { ServerMiddleware } from '../core/types';
 
 /**
  * Validates that the incoming connection originates from one of the allowed origins.
@@ -9,9 +9,9 @@ import type { BridgeContext, Middleware } from '../core/types';
  * @example
  * bridge.use(validateOrigin(['https://example.com']))
  */
-export function validateOrigin(allowedOrigins: string[]): Middleware {
+export function validateOrigin(allowedOrigins: string[]): ServerMiddleware {
   return async (ctx, next) => {
-    const port = (ctx as BridgeContext).port;
+    const port = ctx.port;
     const senderOrigin = port.sender?.origin ?? port.sender?.url;
 
     if (!senderOrigin) {

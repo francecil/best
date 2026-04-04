@@ -214,56 +214,86 @@ Bridge 遵循最小权限原则：
 
 ## 🛡️ 中间件 (Middleware)
 
-在所有请求前/后运行拦截器，支持认证、限流、日志等场景：
+中间件采用 Koa 风格的洋葱模型，在请求前/后运行拦截器，支持认证、限流、日志等场景。
+
+### 内置中间件
 
 ```typescript
 import { createBridge, validateOrigin, rateLimit, createLoggerMiddleware } from 'extension-bridge';
 
-const bridge = createBridge(router);
+const bridge = createBridge(router, {
+  // 通过 option 启用内置 logger 中间件（最外层，自动注入）
+  logger: { level: 'debug' },
+});
 
-// 来源白名单验证
+// 来源白名单验证（ServerMiddleware，可访问 ctx.port）
 bridge.use(validateOrigin(['https://example.com', 'https://app.example.com']));
 
-// 限流：每分钟最多 100 次请求
+// 限流：每分钟最多 100 次请求（ServerMiddleware）
 bridge.use(rateLimit({ window: 60_000, max: 100 }));
-
-// 请求/响应日志
-bridge.use(createLoggerMiddleware({ level: 'debug' }));
-
-// 自定义中间件
-bridge.use({
-  async before(req, ctx) {
-    if (!isAuthenticated(ctx.port.sender?.origin)) {
-      throw new BridgeError(JsonRpcErrorCode.Unauthorized, 'Not authenticated');
-    }
-  },
-  async after(res, ctx) {
-    console.log(`${ctx.path} completed in ${Date.now() - ctx.startTime}ms`);
-  },
-  async onError(error, req) {
-    reportError(error, req.method);
-  },
-});
 
 bridge.listen();
 ```
 
-### 中间件接口
+客户端同样支持 `logger` 选项：
 
 ```typescript
-interface Middleware {
-  // 在 Procedure 执行前运行，可修改 request 或 throw 中止请求
-  before?: (req: JsonRpcRequest, ctx: RequestContext) => Promise<JsonRpcRequest | void> | JsonRpcRequest | void;
-  // 在 Procedure 执行后运行，可修改 response
-  after?: (res: JsonRpcResponse, ctx: RequestContext) => Promise<JsonRpcResponse | void> | JsonRpcResponse | void;
-  // 在 Procedure 抛出异常时运行
-  onError?: (error: Error, req: JsonRpcRequest) => Promise<void> | void;
+import { createClient } from 'extension-bridge';
+
+const client = createClient({
+  logger: { level: 'debug' },  // 启用请求/响应日志
+  retry: { attempts: 3, delay: 500, backoff: 'exponential' },
+});
+```
+
+### Middleware vs ServerMiddleware
+
+| | `Middleware` | `ServerMiddleware` |
+|---|---|---|
+| 适用范围 | Bridge (server) + Client 均可 | 仅 Bridge (server) |
+| Context 类型 | `BaseContext` | `BridgeContext`（含 `ctx.port`） |
+| 典型场景 | 日志、重试、通用请求变换 | 来源验证、连接级限流 |
+
+```typescript
+import type { Middleware, ServerMiddleware } from 'extension-bridge';
+
+// 通用中间件 — 可用于 bridge.use() 或 client 的内置 pipeline
+const timing: Middleware = async (ctx, next) => {
+  const start = Date.now();
+  await next();
+  console.log(`${ctx.req.method} took ${Date.now() - start}ms`);
+};
+
+// Server 专属中间件 — 可访问 ctx.port（chrome.runtime.Port）
+const auth: ServerMiddleware = async (ctx, next) => {
+  const origin = ctx.port.sender?.origin;
+  if (origin !== 'https://example.com') {
+    throw new BridgeError(JsonRpcErrorCode.Forbidden, `Origin not allowed: ${origin}`);
+  }
+  await next();
+};
+
+bridge.use(timing);
+bridge.use(auth);
+```
+
+### 中间件类型
+
+```typescript
+// 通用：BaseContext 是 server 和 client 共享的字段
+type Middleware = (ctx: BaseContext, next: Next) => Promise<void>;
+
+interface BaseContext {
+  req: JsonRpcRequest;          // 请求（next() 前可修改）
+  res: JsonRpcResponse | undefined; // 响应（next() 后可读/修改）
+  startTime: number;            // 请求时间戳 ms
 }
 
-interface RequestContext {
-  path: string;           // e.g. "storage.local.get"
-  port: chrome.runtime.Port;
-  startTime: number;      // Date.now()
+// Server 专属：在 BaseContext 基础上增加 port
+type ServerMiddleware = (ctx: BridgeContext, next: Next) => Promise<void>;
+
+interface BridgeContext extends BaseContext {
+  port: chrome.runtime.Port;   // 发起请求的 content script 连接
 }
 ```
 

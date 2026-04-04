@@ -15,23 +15,25 @@ import type {
   Middleware,
   Next,
   Router,
+  ServerMiddleware,
   SubscriptionCleanup,
   SubscriptionEmit,
 } from './types';
 import { BridgeError } from './error';
-import { callChromeApi, isChromeApiAllowed } from './chrome-api-resolver';
-import { createLogger } from './logger';
+import { callChromeApi, isChromeApiAllowed } from '../utils/chrome-api-resolver';
+import { Logger, createLogger } from '../utils/logger';
+import { createLoggerMiddleware } from '../middlewares/logger';
 import { JsonRpcErrorCode } from './types';
 
 export class Bridge<TRouter extends Router> {
   private readonly router: TRouter;
   private readonly subscriptions = new Map<chrome.runtime.Port, Map<string, SubscriptionCleanup>>();
-  private readonly logger: ReturnType<typeof createLogger>;
+  private readonly logger: ReturnType<Logger>;
   private readonly ports = new Set<chrome.runtime.Port>();
   private readonly procedureCache = new Map<string, AnyProcedure | null>();
   private readonly MAX_SUBSCRIPTIONS_PER_PORT = 50;
   private readonly chromeApiConfig: ChromeApiConfig | undefined;
-  private readonly middlewares: Middleware[] = [];
+  private readonly middlewares: Array<Middleware | ServerMiddleware> = [];
   private readonly devtoolsPorts = new Set<chrome.runtime.Port>();
 
   private readonly debug: boolean;
@@ -41,6 +43,12 @@ export class Bridge<TRouter extends Router> {
     this.chromeApiConfig = options.chromeApi;
     this.debug = options.debug ?? false;
     this.logger = createLogger('Bridge', this.debug);
+
+    // Logger middleware is outermost — injected first so it runs before user middlewares.
+    if (options.logger) {
+      const opts = typeof options.logger === 'object' ? options.logger : {};
+      this.middlewares.push(createLoggerMiddleware(opts));
+    }
   }
 
   /**
@@ -51,7 +59,7 @@ export class Bridge<TRouter extends Router> {
    * bridge.use(validateOrigin(['https://example.com']))
    * bridge.use(rateLimit({ window: 60_000, max: 100 }))
    */
-  use(middleware: Middleware): this {
+  use(middleware: Middleware | ServerMiddleware): this {
     this.middlewares.push(middleware);
     return this;
   }
@@ -144,7 +152,6 @@ export class Bridge<TRouter extends Router> {
     };
 
     this.emitDevTools({ type: 'request', id: req.id, path: req.method, data: req.params, timestamp: startTime });
-    this.logger.debug(`→ ${req.method}`, req.params);
 
     // The innermost step: execute the procedure and store the result in ctx.res
     const coreHandler: Next = async () => {
@@ -163,15 +170,12 @@ export class Bridge<TRouter extends Router> {
       await dispatch(0)();
 
       if (ctx.res !== undefined) {
-        const res = ctx.res as  JsonRpcSuccessResponse;
-        this.logger.debug(`← ${ctx.req.method}`, res.result);
+        const res = ctx.res as JsonRpcSuccessResponse;
         port.postMessage(ctx.res);
         this.emitDevTools({ type: 'response', id: ctx.req.id, path: ctx.req.method, data: res.result, duration: Date.now() - startTime, timestamp: Date.now() });
       }
     }
     catch (error) {
-      this.logger.error(`✗ ${ctx.req.method}`, error);
-
       const code = error instanceof BridgeError
         ? error.code
         : JsonRpcErrorCode.InternalError;

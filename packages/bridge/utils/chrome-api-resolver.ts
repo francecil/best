@@ -4,9 +4,9 @@
  * chrome.* function and invokes it with the provided params.
  */
 
-import { BridgeError } from './error';
-import type { ChromeApiConfig } from './types';
-import { JsonRpcErrorCode } from './types';
+import { BridgeError } from '../core/error';
+import type { ChromeApiConfig } from '../core/types';
+import { JsonRpcErrorCode } from '../core/types';
 
 /** Path segments that must never appear (prototype pollution guard) */
 const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);

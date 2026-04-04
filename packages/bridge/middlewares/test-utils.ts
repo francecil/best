@@ -2,7 +2,7 @@
  * Shared test helpers for middleware tests.
  * Not a test file itself — imported by *.test.ts files.
  */
-import type { Middleware, Router } from '../core/types';
+import type { Middleware, Router, ServerMiddleware } from '../core/types';
 import { vi } from 'vitest';
 import { Bridge } from '../core/bridge';
 import { query } from '../core/procedure';
@@ -44,7 +44,7 @@ export function makeMockPort(senderOrigin?: string): {
 
 export function setupBridge(
   router: Router,
-  middlewares: Middleware[] = [],
+  middlewares: Array<Middleware | ServerMiddleware> = [],
   senderOrigin?: string,
 ) {
   connectListeners.length = 0;

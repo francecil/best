@@ -1,6 +1,6 @@
 import { BridgeError } from '../core/error';
 import { JsonRpcErrorCode } from '../core/types';
-import type { BridgeContext, Middleware } from '../core/types';
+import type { ServerMiddleware } from '../core/types';
 
 export interface RateLimitOptions {
   /** Sliding window duration in ms */
@@ -16,11 +16,11 @@ export interface RateLimitOptions {
  * @example
  * bridge.use(rateLimit({ window: 60_000, max: 100 }))
  */
-export function rateLimit(options: RateLimitOptions): Middleware {
+export function rateLimit(options: RateLimitOptions): ServerMiddleware {
   const requestLog = new Map<string, number[]>();
 
   return async (ctx, next) => {
-    const port = (ctx as BridgeContext).port;
+    const port = ctx.port;
     const origin = port.sender?.origin ?? port.sender?.url ?? 'unknown';
     const now = Date.now();
     const windowStart = now - options.window;

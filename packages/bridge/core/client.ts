@@ -15,9 +15,9 @@ import type {
   Router,
 } from './types';
 import { BridgeError } from './error';
-import { createLogger } from './logger';
 import { retry } from '../middlewares/retry';
 import { createLoggerMiddleware } from '../middlewares/logger';
+import { Logger, createLogger } from '../utils/logger';
 
 export class BridgeClient<TRouter extends Router> {
   /** 双向连接通道 port */
@@ -44,7 +44,7 @@ export class BridgeClient<TRouter extends Router> {
     }
   >();
 
-  private readonly logger: ReturnType<typeof createLogger>;
+  private readonly logger: ReturnType<Logger>;
   private readonly options: ClientOptions;
   private readonly middlewares: Middleware[];
 
@@ -253,7 +253,6 @@ export class BridgeClient<TRouter extends Router> {
         params,
       };
 
-      this.logger.debug(`→ ${method}`, params);
       this.port!.postMessage(request);
     });
   }
@@ -301,15 +300,11 @@ export class BridgeClient<TRouter extends Router> {
   private createProcedure(path: string): any {
     return {
       query: async (input?: unknown) => {
-        const result = await this.request(path, input);
-        this.logger.debug(`← ${path}`, result);
-        return result;
+        return this.request(path, input);
       },
 
       mutate: async (input?: unknown) => {
-        const result = await this.request(path, input);
-        this.logger.debug(`← ${path}`, result);
-        return result;
+        return this.request(path, input);
       },
 
       subscribe: (callback: (data: unknown) => void) => {
