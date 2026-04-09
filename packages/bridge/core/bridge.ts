@@ -7,11 +7,9 @@ import type {
   BridgeContext,
   BridgeOptions,
   ChromeApiConfig,
-  DevToolsEvent,
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
-  JsonRpcSuccessResponse,
   Middleware,
   Next,
   Router,
@@ -23,6 +21,7 @@ import { BridgeError } from './error';
 import { callChromeApi, isChromeApiAllowed } from '../utils/chrome-api-resolver';
 import { Logger, createLogger } from '../utils/logger';
 import { createLoggerMiddleware } from '../middlewares/logger';
+import { createDevToolsMiddleware } from '../middlewares/devtools';
 import { JsonRpcErrorCode } from './types';
 
 export class Bridge<TRouter extends Router> {
@@ -34,7 +33,6 @@ export class Bridge<TRouter extends Router> {
   private readonly MAX_SUBSCRIPTIONS_PER_PORT = 50;
   private readonly chromeApiConfig: ChromeApiConfig | undefined;
   private readonly middlewares: Array<Middleware | ServerMiddleware> = [];
-  private readonly devtoolsPorts = new Set<chrome.runtime.Port>();
 
   private readonly debug: boolean;
 
@@ -44,7 +42,11 @@ export class Bridge<TRouter extends Router> {
     this.debug = options.debug ?? false;
     this.logger = createLogger('Bridge', this.debug);
 
-    // Logger middleware is outermost — injected first so it runs before user middlewares.
+    // Built-in middlewares are injected first (outermost) so they run before user middlewares.
+    // DevTools is outermost — captures full request lifetime including all other middleware.
+    if (this.debug) {
+      this.middlewares.push(createDevToolsMiddleware());
+    }
     if (options.logger) {
       const opts = typeof options.logger === 'object' ? options.logger : {};
       this.middlewares.push(createLoggerMiddleware(opts));
@@ -73,17 +75,6 @@ export class Bridge<TRouter extends Router> {
     // Content script uses chrome.runtime.connect({ name: 'bridge' }) — register onConnect up front.
     // (The connector does not send runtime messages with type bridge:connect.)
     chrome.runtime.onConnect.addListener((port) => {
-      // DevTools panel connects with a dedicated port name (debug mode only)
-      if (port.name === 'bridge:devtools') {
-        if (this.debug) {
-          this.devtoolsPorts.add(port);
-          port.onDisconnect.addListener(() => {
-            this.devtoolsPorts.delete(port);
-          });
-        }
-        return;
-      }
-
       if (port.name !== 'bridge') {
         return;
       }
@@ -109,16 +100,6 @@ export class Bridge<TRouter extends Router> {
     });
 
     this.logger.success('Bridge ready');
-  }
-
-  /**
-   * Emit an event to all connected DevTools panels (debug mode only).
-   */
-  private emitDevTools(event: DevToolsEvent) {
-    if (!this.debug) return;
-    for (const port of this.devtoolsPorts) {
-      port.postMessage(event);
-    }
   }
 
   /**
@@ -151,8 +132,6 @@ export class Bridge<TRouter extends Router> {
       startTime,
     };
 
-    this.emitDevTools({ type: 'request', id: req.id, path: req.method, data: req.params, timestamp: startTime });
-
     // The innermost step: execute the procedure and store the result in ctx.res
     const coreHandler: Next = async () => {
       const result = await this.callProcedure(ctx.req.method, ctx.req.params, port);
@@ -170,9 +149,7 @@ export class Bridge<TRouter extends Router> {
       await dispatch(0)();
 
       if (ctx.res !== undefined) {
-        const res = ctx.res as JsonRpcSuccessResponse;
         port.postMessage(ctx.res);
-        this.emitDevTools({ type: 'response', id: ctx.req.id, path: ctx.req.method, data: res.result, duration: Date.now() - startTime, timestamp: Date.now() });
       }
     }
     catch (error) {
@@ -191,7 +168,6 @@ export class Bridge<TRouter extends Router> {
       };
 
       port.postMessage(response);
-      this.emitDevTools({ type: 'error', id: ctx.req.id, path: ctx.req.method, data: error instanceof Error ? error.message : String(error), duration: Date.now() - startTime, timestamp: Date.now() });
     }
   }
 

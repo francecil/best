@@ -4,6 +4,7 @@
  */
 
 import { createLogger } from "../utils/logger";
+import { getDelay } from "../utils/retry";
 
 interface ConnectorOptions {
   debug?: boolean;
@@ -51,13 +52,13 @@ export function connectBridge(options: ConnectorOptions = {}) {
 
           // Forward messages: Page -> Background
           channel.port1.onmessage = (e) => {
-            logger.info('Page → Background:', e.data);
+            logger.debug('Page → Background:', e.data);
             backgroundPort.postMessage(e.data);
           };
 
           // Forward messages: Background -> Page
           backgroundPort.onMessage.addListener((msg) => {
-            logger.info('Background → Page:', msg);
+            logger.debug('Background → Page:', msg);
             channel.port1.postMessage(msg);
           });
 
@@ -69,7 +70,7 @@ export function connectBridge(options: ConnectorOptions = {}) {
             // Attempt reconnection if there's an error and retries remaining
             if (chrome.runtime.lastError && retryCount < maxRetries) {
               retryCount++;
-              const delay = Math.min(baseRetryDelay * 2 ** (retryCount - 1), 10000);
+              const delay = getDelay({ delay: baseRetryDelay, backoff: 'exponential', maxDelay: 10000 }, retryCount);
               logger.info(`Reconnecting in ${delay}ms (attempt ${retryCount}/${maxRetries})...`);
 
               setTimeout(() => {
@@ -77,7 +78,7 @@ export function connectBridge(options: ConnectorOptions = {}) {
               }, delay);
             }
             else if (retryCount >= maxRetries) {
-              logger.info(`Max retries (${maxRetries}) reached, giving up`);
+              logger.warn(`Max retries (${maxRetries}) reached, giving up`);
             }
           });
 
@@ -94,20 +95,20 @@ export function connectBridge(options: ConnectorOptions = {}) {
           logger.info('Connection established');
         }
         catch (error) {
-          logger.info('Connection failed:', error);
+          logger.error('Connection failed:', error);
 
           // Retry if we haven't exceeded max attempts
           if (retryCount < maxRetries) {
             retryCount++;
-            const delay = Math.min(baseRetryDelay * 2 ** (retryCount - 1), 10000);
-            logger.info(`Retrying in ${delay}ms (attempt ${retryCount}/${maxRetries})...`);
+            const delay = getDelay({ delay: baseRetryDelay, backoff: 'exponential', maxDelay: 10000 }, retryCount);
+            logger.warn(`Retrying in ${delay}ms (attempt ${retryCount}/${maxRetries})...`);
 
             setTimeout(() => {
               attemptConnect();
             }, delay);
           }
           else {
-            logger.info(`Max retries (${maxRetries}) reached, giving up`);
+            logger.warn(`Max retries (${maxRetries}) reached, giving up`);
           }
         }
       };

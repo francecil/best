@@ -1,3 +1,5 @@
+export { createDevToolsMiddleware } from './devtools';
+
 export { createLoggerMiddleware } from './logger';
 export type { LoggerMiddlewareOptions } from './logger';
 

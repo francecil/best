@@ -1,17 +1,7 @@
 import type { Middleware } from '../core/types';
+import { type RetryOptions, getDelay, sleep } from '../utils/retry';
 
-export interface RetryOptions {
-  /** Number of additional attempts after the first failure (0 = no retry) */
-  attempts: number;
-  /** Base delay in ms between retries */
-  delay: number;
-  /** Delay growth strategy:
-   * - `'linear'`: each retry waits `delay * attempt` ms
-   * - `'exponential'`: each retry waits `delay * 2^(attempt-1)` ms
-   * - `undefined`: constant delay
-   */
-  backoff?: 'linear' | 'exponential';
-}
+export type { RetryOptions };
 
 /**
  * Retries the downstream middleware chain (and procedure) on failure.
@@ -40,18 +30,4 @@ export function retry(options: RetryOptions): Middleware {
 
     throw lastError;
   };
-}
-
-function getDelay(options: RetryOptions, attempt: number): number {
-  if (options.backoff === 'exponential') {
-    return options.delay * 2 ** (attempt - 1);
-  }
-  if (options.backoff === 'linear') {
-    return options.delay * attempt;
-  }
-  return options.delay;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
