@@ -39,25 +39,17 @@ export { connectBridge } from './connector';
 // Core exports
 export { createBridge } from './core/bridge';
 export { registerOffscreenHandler } from './core/offscreen';
+export * from './core/devtools';
 // Re-export for convenience
 export { createClient } from './core/client';
 export { BridgeError } from './core/error';
 
 export { mutation, query, subscription } from './core/procedure';
-export type {
-  AnyProcedure,
-  BridgeOptions,
-  ChromeApiClient,
-  ChromeApiConfig,
-  InferClient,
-  Procedure,
-  ProcedureCallable,
-  ProcedureType,
-  Router,
-  SubscriptionCallable,
-} from './core/types';
-export type { DefaultRouter } from './procedures';
-export { JsonRpcErrorCode } from './core/types';
+export * from './core/types';
+
+// Built-in middleware
+export * from './middlewares';
 
 // Built-in procedures
 export * from './procedures';
+

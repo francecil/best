@@ -144,6 +144,8 @@ export interface BridgeOptions {
   timeout?: number;
   /** Enable generic Chrome API passthrough for unregistered procedures */
   chromeApi?: ChromeApiConfig;
+  /** Enable the logger middleware on the bridge pipeline */
+  logger?: boolean | { level?: 'debug' | 'info' };
 }
 
 // ========================================
@@ -159,8 +161,98 @@ export interface ClientOptions extends BridgeOptions {
   retry?: {
     attempts: number;
     delay: number;
+    backoff?: 'linear' | 'exponential';
   };
+  /** Enable the logger middleware on the client pipeline */
+  logger?: boolean | { level?: 'debug' | 'info' };
 }
+
+// ========================================
+// Middleware Types
+// ========================================
+
+/**
+ * Base context shared by both server (Bridge) and client (BridgeClient) middleware.
+ * Contains only the fields that every middleware environment provides.
+ */
+export interface BaseContext {
+  /** The JSON-RPC request. Mutate before calling next() to change the input. */
+  req: JsonRpcRequest;
+  /**
+   * The JSON-RPC response. Populated after next() completes successfully.
+   * Mutate after calling next() to transform the output.
+   */
+  res: JsonRpcResponse | undefined;
+  /** Unix timestamp (ms) when the request was received */
+  startTime: number;
+}
+
+/**
+ * Server-specific context — extends BaseContext with the chrome.runtime.Port.
+ * Only available in the Bridge (service worker) middleware pipeline.
+ */
+export interface BridgeContext extends BaseContext {
+  /** The chrome.runtime.Port for this connection */
+  port: chrome.runtime.Port;
+}
+
+/** Call next() to pass control to the next middleware (or the procedure). */
+export type Next = () => Promise<void>;
+
+/**
+ * Generic Koa-style middleware. Works on **both** the Bridge (server) and
+ * BridgeClient (client) pipelines.
+ *
+ * Receives `BaseContext` — the fields common to both environments.
+ * Use this type for reusable middleware (e.g. logging, retry) that doesn't
+ * need access to the underlying chrome.runtime.Port.
+ *
+ * - **Before `next()`**: read/modify `ctx.req` to change the request.
+ * - **After `next()`**: read/modify `ctx.res` to transform the response.
+ * - **On error**: wrap `await next()` in try/catch to intercept failures.
+ *
+ * @example
+ * bridge.use(async (ctx, next) => {
+ *   console.log(`→ ${ctx.req.method}`, ctx.req.params)
+ *   await next()
+ *   console.log(`← ${ctx.req.method} (${Date.now() - ctx.startTime}ms)`)
+ * })
+ */
+export type Middleware = (ctx: BaseContext, next: Next) => Promise<void>;
+
+/**
+ * Server-only Koa-style middleware. Can only be passed to `bridge.use()`.
+ *
+ * Receives `BridgeContext`, which extends `BaseContext` with `ctx.port`
+ * (the `chrome.runtime.Port` of the connected page). Use this type when
+ * your middleware needs to inspect the sender — e.g. for origin validation
+ * or per-connection rate limiting.
+ *
+ * @example
+ * bridge.use(async (ctx, next) => {
+ *   const origin = ctx.port.sender?.origin
+ *   if (origin !== 'https://example.com') throw new BridgeError(JsonRpcErrorCode.Forbidden, 'blocked')
+ *   await next()
+ * })
+ */
+export type ServerMiddleware = (ctx: BridgeContext, next: Next) => Promise<void>;
+
+// ========================================
+// DevTools Types
+// ========================================
+
+export interface DevToolsEvent {
+  type: 'request' | 'response' | 'error' | 'subscribe' | 'unsubscribe';
+  id: number | string;
+  path: string;
+  data: unknown;
+  /** Duration in ms — present on response and error events */
+  duration?: number;
+  timestamp: number;
+}
+
+/** Function to emit a DevTools event to the panel for a given tab. */
+export type DevToolsEmit = (tabId: number | undefined, event: DevToolsEvent) => void;
 
 // ========================================
 // Message Types

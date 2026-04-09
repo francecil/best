@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Bridge E2E Test Extension",
+  "version": "1.0.0",
+  "description": "Minimal extension for Bridge E2E tests",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "permissions": [
+    "storage",
+    "tabs",
+    "management"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ]
+}

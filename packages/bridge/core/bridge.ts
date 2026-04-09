@@ -3,34 +3,63 @@
  */
 
 import type {
-  AnyProcedure,
+  BridgeContext,
   BridgeOptions,
   ChromeApiConfig,
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
+  Middleware,
+  Next,
   Router,
-  SubscriptionCleanup,
-  SubscriptionEmit,
+  ServerMiddleware,
 } from './types';
 import { BridgeError } from './error';
-import { callChromeApi, isChromeApiAllowed } from './chrome-api-resolver';
-import { createLogger } from './logger';
+import { callChromeApi, isChromeApiAllowed } from '../utils/chrome-api-resolver';
+import { Logger, createLogger } from '../utils/logger';
+import { createLoggerMiddleware } from '../middlewares/logger';
+import { createDevToolsMiddleware } from '../middlewares/devtools';
+import { createProcedureResolver } from '../utils/resolve-procedure';
+import { SubscriptionManager } from './subscription-manager';
 import { JsonRpcErrorCode } from './types';
 
 export class Bridge<TRouter extends Router> {
-  private readonly router: TRouter;
-  private readonly subscriptions = new Map<chrome.runtime.Port, Map<string, SubscriptionCleanup>>();
-  private readonly logger: ReturnType<typeof createLogger>;
-  private readonly ports = new Set<chrome.runtime.Port>();
-  private readonly procedureCache = new Map<string, AnyProcedure | null>();
-  private readonly MAX_SUBSCRIPTIONS_PER_PORT = 50;
+  private readonly logger: ReturnType<Logger>;
+  private readonly middlewares: Array<Middleware | ServerMiddleware> = [];
   private readonly chromeApiConfig: ChromeApiConfig | undefined;
+  private readonly resolve: ReturnType<typeof createProcedureResolver>;
+  private readonly subscriptions: SubscriptionManager;
 
   constructor(router: TRouter, options: BridgeOptions = {}) {
-    this.router = router;
     this.chromeApiConfig = options.chromeApi;
     this.logger = createLogger('Bridge', options.debug ?? false);
+    this.resolve = createProcedureResolver(router);
+
+    if (options.debug) {
+      const devtools = createDevToolsMiddleware();
+      this.middlewares.push(devtools.middleware);
+      this.subscriptions = new SubscriptionManager(this.logger, devtools.emit);
+    }
+    else {
+      this.subscriptions = new SubscriptionManager(this.logger);
+    }
+    if (options.logger) {
+      const opts = typeof options.logger === 'object' ? options.logger : {};
+      this.middlewares.push(createLoggerMiddleware(opts));
+    }
+  }
+
+  /**
+   * Register a middleware to intercept all requests/responses.
+   * Middlewares run in the order they are added.
+   *
+   * @example
+   * bridge.use(validateOrigin(['https://example.com']))
+   * bridge.use(rateLimit({ window: 60_000, max: 100 }))
+   */
+  use(middleware: Middleware | ServerMiddleware): this {
+    this.middlewares.push(middleware);
+    return this;
   }
 
   /**
@@ -39,28 +68,16 @@ export class Bridge<TRouter extends Router> {
   listen() {
     this.logger.info('Bridge listening...');
 
-    // Content script uses chrome.runtime.connect({ name: 'bridge' }) — register onConnect up front.
-    // (The connector does not send runtime messages with type bridge:connect.)
     chrome.runtime.onConnect.addListener((port) => {
-      if (port.name !== 'bridge') {
-        return;
-      }
+      if (port.name !== 'bridge') return;
 
       const sender = port.sender;
-      this.logger.info(
-        `Port connected: ${port.name} (tab ${sender?.tab?.id}, frame ${sender?.frameId})`,
-      );
+      this.logger.info(`Port connected: ${port.name} (tab ${sender?.tab?.id}, frame ${sender?.frameId})`);
 
-      this.ports.add(port);
-
-      port.onMessage.addListener((message) => {
-        this.handleMessage(message, port);
-      });
-
+      port.onMessage.addListener((message) => this.handleMessage(message, port));
       port.onDisconnect.addListener(() => {
         this.logger.info('Port disconnected');
-        this.ports.delete(port);
-        this.cleanupSubscriptions(port);
+        this.subscriptions.cleanup(port);
       });
 
       port.postMessage({ type: 'bridge:ready' });
@@ -69,221 +86,66 @@ export class Bridge<TRouter extends Router> {
     this.logger.success('Bridge ready');
   }
 
-  /**
-   * Handle incoming JSON-RPC message
-   */
-  private async handleMessage(
-    message: JsonRpcRequest | JsonRpcNotification,
-    port: chrome.runtime.Port,
-  ) {
-    // Handle subscription unsubscribe
+  private async handleMessage(message: JsonRpcRequest | JsonRpcNotification, port: chrome.runtime.Port) {
     if (message.method?.startsWith('$unsubscribe:')) {
-      const subscriptionId = message.method.replace('$unsubscribe:', '');
-      this.unsubscribe(subscriptionId);
+      this.subscriptions.unsubscribe(message.method.replace('$unsubscribe:', ''));
       return;
     }
 
-    // Validate request
     if (!('id' in message)) {
       this.logger.warn('Received notification (no id), ignoring');
       return;
     }
 
-    const request = message;
+    const ctx: BridgeContext = { req: message, res: undefined, port, startTime: Date.now() };
+
+    const coreHandler: Next = async () => {
+      const result = await this.callProcedure(ctx.req.method, ctx.req.params, port);
+      ctx.res = { jsonrpc: '2.0', id: ctx.req.id, result };
+    };
+
+    const dispatch = (i: number): Next => {
+      if (i === this.middlewares.length) return coreHandler;
+      return () => this.middlewares[i]!(ctx, dispatch(i + 1));
+    };
 
     try {
-      this.logger.debug(`→ ${request.method}`, request.params);
-
-      const result = await this.callProcedure(
-        request.method,
-        request.params,
-        port,
-      );
-
-      const response: JsonRpcResponse = {
-        jsonrpc: '2.0',
-        id: request.id,
-        result,
-      };
-
-      port.postMessage(response);
-      this.logger.debug(`← ${request.method}`, result);
+      await dispatch(0)();
+      if (ctx.res !== undefined) port.postMessage(ctx.res);
     }
     catch (error) {
-      this.logger.error(`✗ ${request.method}`, error);
-
-      const code = error instanceof BridgeError
-        ? error.code
-        : JsonRpcErrorCode.InternalError;
-
       const response: JsonRpcResponse = {
         jsonrpc: '2.0',
-        id: request.id,
+        id: ctx.req.id,
         error: {
-          code,
+          code: error instanceof BridgeError ? error.code : JsonRpcErrorCode.InternalError,
           message: error instanceof Error ? error.message : String(error),
           data: error instanceof BridgeError ? error.data : error,
         },
       };
-
       port.postMessage(response);
     }
   }
 
-  /**
-   * Call a procedure by path
-   */
-  private async callProcedure(
-    path: string,
-    params: unknown,
-    port: chrome.runtime.Port,
-  ): Promise<unknown> {
-    const procedure = this.resolveProcedure(path);
+  private async callProcedure(path: string, params: unknown, port: chrome.runtime.Port): Promise<unknown> {
+    const procedure = this.resolve(path);
 
     if (procedure) {
-      // Handle subscription
       if (procedure._meta.type === 'subscription') {
-        return this.handleSubscription(path, procedure, port);
+        return this.subscriptions.handle(path, procedure, port);
       }
-
-      // Handle query/mutation
-      const handler = procedure.handler as (input: unknown) => Promise<unknown>;
-      return await handler(params);
+      return (procedure.handler as (input: unknown) => Promise<unknown>)(params);
     }
 
-    // Fallback: generic Chrome API passthrough
     if (isChromeApiAllowed(path, this.chromeApiConfig)) {
       this.logger.debug(`Chrome API fallback: chrome.${path}`);
-      return await callChromeApi(path, params);
+      return callChromeApi(path, params);
     }
 
     throw new BridgeError(JsonRpcErrorCode.MethodNotFound, `Procedure not found: ${path}`);
   }
-
-  /**
-   * Handle subscription
-   */
-  private handleSubscription(
-    path: string,
-    procedure: AnyProcedure,
-    port: chrome.runtime.Port,
-  ): { subscriptionId: string } {
-    // Check subscription limit per port
-    const portSubs = this.subscriptions.get(port);
-    if (portSubs && portSubs.size >= this.MAX_SUBSCRIPTIONS_PER_PORT) {
-      throw new Error(`Subscription limit exceeded (max: ${this.MAX_SUBSCRIPTIONS_PER_PORT})`);
-    }
-
-    const subscriptionId = `${path}:${Date.now()}:${Math.random()}`;
-
-    this.logger.info(`Creating subscription: ${subscriptionId}`);
-
-    const emit: SubscriptionEmit<unknown> = (data) => {
-      const notification: JsonRpcNotification = {
-        jsonrpc: '2.0',
-        method: `$subscription:${subscriptionId}`,
-        params: data,
-      };
-
-      port.postMessage(notification);
-    };
-
-    const handler = procedure.handler as (emit: SubscriptionEmit<unknown>) => SubscriptionCleanup;
-
-    // Wrap handler in try-catch to prevent orphaned listeners
-    let cleanup: SubscriptionCleanup;
-    try {
-      cleanup = handler(emit);
-    }
-    catch (error) {
-      this.logger.error(`Subscription setup failed: ${path}`, error);
-      throw error;
-    }
-
-    // Store cleanup function per port
-    if (!this.subscriptions.has(port)) {
-      this.subscriptions.set(port, new Map());
-    }
-
-    this.subscriptions.get(port)!.set(subscriptionId, cleanup);
-
-    return { subscriptionId };
-  }
-
-  /**
-   * Unsubscribe from a subscription
-   */
-  private unsubscribe(subscriptionId: string) {
-    this.logger.info(`Unsubscribing: ${subscriptionId}`);
-
-    for (const [port, subs] of this.subscriptions.entries()) {
-      const cleanup = subs.get(subscriptionId);
-
-      if (cleanup) {
-        cleanup();
-        subs.delete(subscriptionId);
-
-        if (subs.size === 0) {
-          this.subscriptions.delete(port);
-        }
-
-        break;
-      }
-    }
-  }
-
-  /**
-   * Cleanup subscriptions for a disconnected client
-   */
-  private cleanupSubscriptions(port: chrome.runtime.Port) {
-    const subs = this.subscriptions.get(port);
-
-    if (!subs) {
-      return;
-    }
-
-    this.logger.info(`Cleaning up ${subs.size} subscriptions for disconnected port`);
-
-    for (const [_, cleanup] of subs.entries()) {
-      cleanup();
-    }
-
-    this.subscriptions.delete(port);
-  }
-
-  /**
-   * Resolve procedure by path (with caching)
-   */
-  private resolveProcedure(path: string): AnyProcedure | null {
-    // Check cache first
-    if (this.procedureCache.has(path)) {
-      return this.procedureCache.get(path)!;
-    }
-
-    const parts = path.split('.');
-    let current: any = this.router;
-
-    for (const part of parts) {
-      current = current[part];
-
-      if (!current) {
-        this.procedureCache.set(path, null);
-        return null;
-      }
-    }
-
-    const procedure = current as AnyProcedure;
-    this.procedureCache.set(path, procedure);
-    return procedure;
-  }
 }
 
-/**
- * Create a bridge instance
- */
-export function createBridge<TRouter extends Router>(
-  router: TRouter,
-  options?: BridgeOptions,
-): Bridge<TRouter> {
+export function createBridge<TRouter extends Router>(router: TRouter, options?: BridgeOptions): Bridge<TRouter> {
   return new Bridge(router, options);
 }

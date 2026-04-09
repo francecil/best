@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BridgeError } from './error';
+import { BridgeError } from '../core/error';
 import { callChromeApi, isChromeApiAllowed, resolveChromeApi } from './chrome-api-resolver';
-import { JsonRpcErrorCode } from './types';
+import { JsonRpcErrorCode } from '../core/types';
 
 describe('isChromeApiAllowed', () => {
   it('returns false when config is undefined', () => {

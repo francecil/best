@@ -206,9 +206,200 @@ subscription((emit) => {
 Bridge 遵循最小权限原则：
 
 - ✅ **不绕过 Chrome 权限模型** - 仍需在 manifest.json 声明权限
-- ✅ **来源验证** - 可配置 allowedOrigins 白名单
+- ✅ **来源验证** - 可通过中间件配置 allowedOrigins 白名单
 - ✅ **API 白名单** - 只暴露明确定义的 Procedures
 - ✅ **类型安全** - 编译时检查，减少运行时错误
+
+---
+
+## 🛡️ 中间件 (Middleware)
+
+中间件采用 Koa 风格的洋葱模型，在请求前/后运行拦截器，支持认证、限流、日志等场景。
+
+### 内置中间件
+
+```typescript
+import { createBridge, validateOrigin, rateLimit, createLoggerMiddleware } from 'extension-bridge';
+
+const bridge = createBridge(router, {
+  // 通过 option 启用内置 logger 中间件（最外层，自动注入）
+  logger: { level: 'debug' },
+});
+
+// 来源白名单验证（ServerMiddleware，可访问 ctx.port）
+bridge.use(validateOrigin(['https://example.com', 'https://app.example.com']));
+
+// 限流：每分钟最多 100 次请求（ServerMiddleware）
+bridge.use(rateLimit({ window: 60_000, max: 100 }));
+
+bridge.listen();
+```
+
+客户端同样支持 `logger` 选项：
+
+```typescript
+import { createClient } from 'extension-bridge';
+
+const client = createClient({
+  logger: { level: 'debug' },  // 启用请求/响应日志
+  retry: { attempts: 3, delay: 500, backoff: 'exponential' },
+});
+```
+
+### Middleware vs ServerMiddleware
+
+| | `Middleware` | `ServerMiddleware` |
+|---|---|---|
+| 适用范围 | Bridge (server) + Client 均可 | 仅 Bridge (server) |
+| Context 类型 | `BaseContext` | `BridgeContext`（含 `ctx.port`） |
+| 典型场景 | 日志、重试、通用请求变换 | 来源验证、连接级限流 |
+
+```typescript
+import type { Middleware, ServerMiddleware } from 'extension-bridge';
+
+// 通用中间件 — 可用于 bridge.use() 或 client 的内置 pipeline
+const timing: Middleware = async (ctx, next) => {
+  const start = Date.now();
+  await next();
+  console.log(`${ctx.req.method} took ${Date.now() - start}ms`);
+};
+
+// Server 专属中间件 — 可访问 ctx.port（chrome.runtime.Port）
+const auth: ServerMiddleware = async (ctx, next) => {
+  const origin = ctx.port.sender?.origin;
+  if (origin !== 'https://example.com') {
+    throw new BridgeError(JsonRpcErrorCode.Forbidden, `Origin not allowed: ${origin}`);
+  }
+  await next();
+};
+
+bridge.use(timing);
+bridge.use(auth);
+```
+
+### 中间件类型
+
+```typescript
+// 通用：BaseContext 是 server 和 client 共享的字段
+type Middleware = (ctx: BaseContext, next: Next) => Promise<void>;
+
+interface BaseContext {
+  req: JsonRpcRequest;          // 请求（next() 前可修改）
+  res: JsonRpcResponse | undefined; // 响应（next() 后可读/修改）
+  startTime: number;            // 请求时间戳 ms
+}
+
+// Server 专属：在 BaseContext 基础上增加 port
+type ServerMiddleware = (ctx: BridgeContext, next: Next) => Promise<void>;
+
+interface BridgeContext extends BaseContext {
+  port: chrome.runtime.Port;   // 发起请求的 content script 连接
+}
+```
+
+---
+
+## 🔁 重试机制 (Retry)
+
+客户端自动重试失败的请求：
+
+```typescript
+import { createClient } from 'extension-bridge';
+
+const bridge = createClient({
+  retry: {
+    attempts: 3,          // 额外重试次数（默认 0 = 不重试）
+    delay: 500,           // 基础延迟 ms
+    backoff: 'exponential', // 'linear' | 'exponential' | undefined（固定延迟）
+  },
+});
+```
+
+也可单独使用工具函数：
+
+```typescript
+import { withRetry } from 'extension-bridge';
+
+const data = await withRetry(
+  () => fetch('https://api.example.com/data').then(r => r.json()),
+  { attempts: 3, delay: 1000, backoff: 'exponential' }
+);
+```
+
+---
+
+## 🔍 DevTools 面板
+
+Bridge 内置 Chrome DevTools 面板支持，可实时查看所有 API 调用、请求详情和耗时。
+
+### 启用 DevTools 面板
+
+1. 在 `manifest.json` 中添加：
+
+```json
+{
+  "devtools_page": "devtools/devtools.html"
+}
+```
+
+2. 将 `devtools/` 目录的文件复制到你的扩展项目，编译后加载。
+
+3. 在 Chrome DevTools 中打开 **Bridge** 标签页，即可实时查看所有 Bridge 调用。
+
+面板功能：
+- 实时显示 request / response / error / subscribe 事件
+- 点击事件查看完整 Request Params 和 Response Data
+- 按 path 过滤事件
+- 清除日志
+
+---
+
+## 🔧 类型生成工具
+
+从 Service Worker 的 Bridge 定义自动生成客户端类型文件：
+
+```bash
+# 安装 tsx（如未安装）
+npm install -D tsx
+
+# 生成类型文件
+npx tsx scripts/generate-types.ts \
+  --input ./src/background.ts \
+  --output ./src/bridge-client.d.ts
+```
+
+要求 background.ts 中 `router` 变量已 `export`：
+
+```typescript
+// background.ts
+export const router = { ... };   // ← 必须 export
+createBridge(router).listen();
+```
+
+生成的文件：
+
+```typescript
+// bridge-client.d.ts (auto-generated)
+import type { InferClient } from 'extension-bridge';
+import type { router } from '../background';
+export type BridgeClient = InferClient<typeof router>;
+```
+
+---
+
+## 🧪 E2E 测试
+
+使用 Playwright 对真实 Chrome 扩展进行端到端测试：
+
+```bash
+# 安装依赖
+pnpm install
+
+# 构建测试 fixture 扩展 + 运行 E2E 测试
+pnpm run test:e2e
+```
+
+测试文件位于 `__tests__/e2e/`，使用 `chromium.launchPersistentContext` 加载扩展后测试完整的通信流程。
 
 ---
 
@@ -218,4 +409,4 @@ Bridge 遵循最小权限原则：
 - 完整的架构设计
 - 高级用法（React Hook、自定义 Procedure）
 - 性能优化和最佳实践
-- 开发者体验优化（日志、DevTools）
+- 中间件系统和 DevTools 集成

@@ -1,6 +1,6 @@
 {
   "name": "extension-bridge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "浏览器扩展 Bridge：让普通网页通过扩展进程调用 chrome.* API，并支持将扩展侧事件推回页面",
   "author": "justinzheng",
   "license": "ISC",
@@ -42,7 +42,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "build:e2e": "node scripts/build-e2e.mjs",
+    "test:e2e": "vitest run __tests__/e2e",
+    "bridge:generate-types": "tsx scripts/generate-types.ts"
   },
   "dependencies": {
     "es-toolkit": "^1.45.1"
@@ -52,6 +55,7 @@
     "@vitest/coverage-v8": "^1.5.0",
     "esbuild": "^0.20.2",
     "happy-dom": "^14.12.2",
+    "tsx": "^4.19.0",
     "typescript": "^5.4.5",
     "vitest": "^1.5.0"
   }

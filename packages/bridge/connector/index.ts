@@ -3,6 +3,9 @@
  * Automatically bridges Page <-> Service Worker
  */
 
+import { createLogger } from "../utils/logger";
+import { getDelay } from "../utils/retry";
+
 interface ConnectorOptions {
   debug?: boolean;
   maxRetries?: number;
@@ -13,14 +16,9 @@ export function connectBridge(options: ConnectorOptions = {}) {
   const debug = options.debug ?? false;
   const maxRetries = options.maxRetries ?? 5;
   const baseRetryDelay = options.retryDelay ?? 1000;
+  const logger = createLogger('Bridge Connector', debug);
 
-  const log = (...args: any[]) => {
-    if (debug) {
-      console.log('[Bridge Connector]', ...args);
-    }
-  };
-
-  log('Initializing...');
+  logger.info('Initializing...');
 
   // ========================================
   // 1. Listen for connection request from page
@@ -35,7 +33,7 @@ export function connectBridge(options: ConnectorOptions = {}) {
     const message = event.data;
 
     if (message?.type === 'bridge:connect') {
-      log('Connection request received');
+      logger.info('Connection request received');
 
       let retryCount = 0;
 
@@ -47,40 +45,40 @@ export function connectBridge(options: ConnectorOptions = {}) {
           // Connect to Service Worker via runtime.connect
           const backgroundPort = chrome.runtime.connect({ name: 'bridge' });
 
-          log('Connected to background');
+          logger.info('Connected to background');
 
           // Reset retry count on successful connection
           retryCount = 0;
 
           // Forward messages: Page -> Background
           channel.port1.onmessage = (e) => {
-            log('Page → Background:', e.data);
+            logger.debug('Page → Background:', e.data);
             backgroundPort.postMessage(e.data);
           };
 
           // Forward messages: Background -> Page
           backgroundPort.onMessage.addListener((msg) => {
-            log('Background → Page:', msg);
+            logger.debug('Background → Page:', msg);
             channel.port1.postMessage(msg);
           });
 
           // Handle disconnect with retry logic
           backgroundPort.onDisconnect.addListener(() => {
-            log('Background disconnected');
+            logger.info('Background disconnected');
             channel.port1.close();
 
             // Attempt reconnection if there's an error and retries remaining
             if (chrome.runtime.lastError && retryCount < maxRetries) {
               retryCount++;
-              const delay = Math.min(baseRetryDelay * 2 ** (retryCount - 1), 10000);
-              log(`Reconnecting in ${delay}ms (attempt ${retryCount}/${maxRetries})...`);
+              const delay = getDelay({ delay: baseRetryDelay, backoff: 'exponential', maxDelay: 10000 }, retryCount);
+              logger.info(`Reconnecting in ${delay}ms (attempt ${retryCount}/${maxRetries})...`);
 
               setTimeout(() => {
                 attemptConnect();
               }, delay);
             }
             else if (retryCount >= maxRetries) {
-              log(`Max retries (${maxRetries}) reached, giving up`);
+              logger.warn(`Max retries (${maxRetries}) reached, giving up`);
             }
           });
 
@@ -94,23 +92,23 @@ export function connectBridge(options: ConnectorOptions = {}) {
             [channel.port2],
           );
 
-          log('Connection established');
+          logger.info('Connection established');
         }
         catch (error) {
-          log('Connection failed:', error);
+          logger.error('Connection failed:', error);
 
           // Retry if we haven't exceeded max attempts
           if (retryCount < maxRetries) {
             retryCount++;
-            const delay = Math.min(baseRetryDelay * 2 ** (retryCount - 1), 10000);
-            log(`Retrying in ${delay}ms (attempt ${retryCount}/${maxRetries})...`);
+            const delay = getDelay({ delay: baseRetryDelay, backoff: 'exponential', maxDelay: 10000 }, retryCount);
+            logger.warn(`Retrying in ${delay}ms (attempt ${retryCount}/${maxRetries})...`);
 
             setTimeout(() => {
               attemptConnect();
             }, delay);
           }
           else {
-            log(`Max retries (${maxRetries}) reached, giving up`);
+            logger.warn(`Max retries (${maxRetries}) reached, giving up`);
           }
         }
       };
@@ -120,5 +118,5 @@ export function connectBridge(options: ConnectorOptions = {}) {
     }
   });
 
-  log('Connector ready');
+  logger.info('Connector ready');
 }
