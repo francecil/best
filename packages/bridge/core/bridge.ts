@@ -34,9 +34,15 @@ export class Bridge<TRouter extends Router> {
     this.chromeApiConfig = options.chromeApi;
     this.logger = createLogger('Bridge', options.debug ?? false);
     this.resolve = createProcedureResolver(router);
-    this.subscriptions = new SubscriptionManager(this.logger);
 
-    if (options.debug) this.middlewares.push(createDevToolsMiddleware());
+    if (options.debug) {
+      const devtools = createDevToolsMiddleware();
+      this.middlewares.push(devtools.middleware);
+      this.subscriptions = new SubscriptionManager(this.logger, devtools.emit);
+    }
+    else {
+      this.subscriptions = new SubscriptionManager(this.logger);
+    }
     if (options.logger) {
       const opts = typeof options.logger === 'object' ? options.logger : {};
       this.middlewares.push(createLoggerMiddleware(opts));

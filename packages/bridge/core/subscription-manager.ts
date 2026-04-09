@@ -1,5 +1,6 @@
 import type {
   AnyProcedure,
+  DevToolsEmit,
   JsonRpcNotification,
   SubscriptionCleanup,
   SubscriptionEmit,
@@ -8,12 +9,20 @@ import type { Logger } from '../utils/logger';
 
 const MAX_SUBSCRIPTIONS_PER_PORT = 50;
 
-export class SubscriptionManager {
-  private readonly subscriptions = new Map<chrome.runtime.Port, Map<string, SubscriptionCleanup>>();
-  private readonly logger: ReturnType<Logger>;
+interface SubEntry {
+  cleanup: SubscriptionCleanup;
+  path: string;
+  tabId: number | undefined;
+}
 
-  constructor(logger: ReturnType<Logger>) {
+export class SubscriptionManager {
+  private readonly subscriptions = new Map<chrome.runtime.Port, Map<string, SubEntry>>();
+  private readonly logger: ReturnType<Logger>;
+  private readonly onDevTools: DevToolsEmit | undefined;
+
+  constructor(logger: ReturnType<Logger>, onDevTools?: DevToolsEmit) {
     this.logger = logger;
+    this.onDevTools = onDevTools;
   }
 
   handle(path: string, procedure: AnyProcedure, port: chrome.runtime.Port): { subscriptionId: string } {
@@ -23,6 +32,7 @@ export class SubscriptionManager {
     }
 
     const subscriptionId = `${path}:${Date.now()}:${Math.random()}`;
+    const tabId = port.sender?.tab?.id;
     this.logger.info(`Creating subscription: ${subscriptionId}`);
 
     const emit: SubscriptionEmit<unknown> = (data) => {
@@ -47,7 +57,9 @@ export class SubscriptionManager {
     if (!this.subscriptions.has(port)) {
       this.subscriptions.set(port, new Map());
     }
-    this.subscriptions.get(port)!.set(subscriptionId, cleanup);
+    this.subscriptions.get(port)!.set(subscriptionId, { cleanup, path, tabId });
+
+    this.onDevTools?.(tabId, { type: 'subscribe', id: subscriptionId, path, data: null, timestamp: Date.now() });
 
     return { subscriptionId };
   }
@@ -56,11 +68,12 @@ export class SubscriptionManager {
     this.logger.info(`Unsubscribing: ${subscriptionId}`);
 
     for (const [port, subs] of this.subscriptions.entries()) {
-      const cleanup = subs.get(subscriptionId);
-      if (cleanup) {
-        cleanup();
+      const entry = subs.get(subscriptionId);
+      if (entry) {
+        entry.cleanup();
         subs.delete(subscriptionId);
         if (subs.size === 0) this.subscriptions.delete(port);
+        this.onDevTools?.(entry.tabId, { type: 'unsubscribe', id: subscriptionId, path: entry.path, data: null, timestamp: Date.now() });
         break;
       }
     }
@@ -71,7 +84,10 @@ export class SubscriptionManager {
     if (!subs) return;
 
     this.logger.info(`Cleaning up ${subs.size} subscriptions for disconnected port`);
-    for (const cleanup of subs.values()) cleanup();
+    for (const [subscriptionId, entry] of subs.entries()) {
+      entry.cleanup();
+      this.onDevTools?.(entry.tabId, { type: 'unsubscribe', id: subscriptionId, path: entry.path, data: null, timestamp: Date.now() });
+    }
     this.subscriptions.delete(port);
   }
 }

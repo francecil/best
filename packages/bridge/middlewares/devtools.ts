@@ -1,4 +1,4 @@
-import type { DevToolsEvent, ServerMiddleware } from '../core/types';
+import type { DevToolsEmit, DevToolsEvent, ServerMiddleware } from '../core/types';
 
 /**
  * Forwards request/response/error events to the Bridge DevTools panel that is
@@ -13,7 +13,7 @@ import type { DevToolsEvent, ServerMiddleware } from '../core/types';
  * @example
  * bridge.use(createDevToolsMiddleware())
  */
-export function createDevToolsMiddleware(): ServerMiddleware {
+export function createDevToolsMiddleware(): { middleware: ServerMiddleware; emit: DevToolsEmit } {
   // tabId → set of DevTools ports inspecting that tab
   const portsByTab = new Map<number, Set<chrome.runtime.Port>>();
 
@@ -47,14 +47,14 @@ export function createDevToolsMiddleware(): ServerMiddleware {
     port.onMessage.addListener(onInit);
   });
 
-  const emit = (tabId: number | undefined, event: DevToolsEvent) => {
+  const emit: DevToolsEmit = (tabId, event) => {
     if (tabId === undefined) return;
     const ports = portsByTab.get(tabId);
     if (!ports) return;
     for (const p of ports) p.postMessage(event);
   };
 
-  return async (ctx, next) => {
+  const middleware: ServerMiddleware = async (ctx, next) => {
     const tabId = ctx.port.sender?.tab?.id;
     emit(tabId, { type: 'request', id: ctx.req.id, path: ctx.req.method, data: ctx.req.params, timestamp: ctx.startTime });
     try {
@@ -67,4 +67,6 @@ export function createDevToolsMiddleware(): ServerMiddleware {
       throw error;
     }
   };
+
+  return { middleware, emit };
 }

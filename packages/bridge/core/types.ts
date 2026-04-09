@@ -251,6 +251,9 @@ export interface DevToolsEvent {
   timestamp: number;
 }
 
+/** Function to emit a DevTools event to the panel for a given tab. */
+export type DevToolsEmit = (tabId: number | undefined, event: DevToolsEvent) => void;
+
 // ========================================
 // Message Types
 // ========================================

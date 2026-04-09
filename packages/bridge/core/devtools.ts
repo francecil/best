@@ -70,6 +70,9 @@ body {
 .s-pending { color: #6a6a6a; }
 .s-ok      { color: #4ec9b0; }
 .s-error   { color: #f44747; }
+.s-done    { color: #9d9d9d; }
+.t-rpc     { color: #569cd6; font-size: 10px; }
+.t-sub     { color: #c586c0; font-size: 10px; }
 #detail-pane { flex: 1; overflow-y: auto; padding: 10px; }
 #detail-placeholder { color: #6a6a6a; margin-top: 20px; text-align: center; }
 #detail-title { font-size: 13px; margin-bottom: 10px; }
@@ -95,10 +98,10 @@ const HTML = `
   <div id="list-pane">
     <table id="events-table">
       <thead>
-        <tr><th>#</th><th>Path</th><th>Status</th><th>Duration</th><th>Time</th></tr>
+        <tr><th>#</th><th>Type</th><th>Path</th><th>Status</th><th>Duration</th><th>Time</th></tr>
       </thead>
       <tbody id="events-body">
-        <tr id="empty-row"><td colspan="5" class="empty">No calls recorded yet.</td></tr>
+        <tr id="empty-row"><td colspan="6" class="empty">No calls recorded yet.</td></tr>
       </tbody>
     </table>
   </div>
@@ -118,7 +121,8 @@ interface CallRecord {
   index: number;
   id: number | string;
   path: string;
-  status: 'pending' | 'ok' | 'error';
+  type: 'rpc' | 'sub';
+  status: 'pending' | 'ok' | 'error' | 'done';
   requestData: unknown;
   responseData?: unknown;
   duration?: number;
@@ -183,6 +187,7 @@ export function mountBridgePanel(): void {
         index: calls.length,
         id: event.id,
         path: event.path,
+        type: 'rpc',
         status: 'pending',
         requestData: event.data,
         startTime: event.timestamp,
@@ -199,6 +204,27 @@ export function mountBridgePanel(): void {
       record.duration = event.duration;
       updateRow(record);
     }
+    else if (event.type === 'subscribe') {
+      const record: CallRecord = {
+        index: calls.length,
+        id: event.id,
+        path: event.path,
+        type: 'sub',
+        status: 'pending',
+        requestData: null,
+        startTime: event.timestamp,
+      };
+      calls.push(record);
+      callsById.set(event.id, record);
+      if (matchesFilter(record)) appendRow(record);
+    }
+    else if (event.type === 'unsubscribe') {
+      const record = callsById.get(event.id);
+      if (!record) return;
+      record.status = 'done';
+      record.duration = event.timestamp - record.startTime;
+      updateRow(record);
+    }
   }
 
   function matchesFilter(r: CallRecord) {
@@ -209,9 +235,10 @@ export function mountBridgePanel(): void {
   function rowCells(record: CallRecord): string {
     const duration = record.duration !== undefined ? `${record.duration}ms` : '—';
     const time = new Date(record.startTime).toISOString().slice(11, 23);
-    const statusLabel = record.status === 'pending' ? '…' : record.status === 'ok' ? 'ok' : 'err';
+    const statusLabel = record.status === 'pending' ? '…' : record.status === 'ok' ? 'ok' : record.status === 'done' ? 'done' : 'err';
     return `
       <td>${record.index + 1}</td>
+      <td class="t-${record.type}">${record.type}</td>
       <td title="${record.path}">${record.path}</td>
       <td class="s-${record.status}">${statusLabel}</td>
       <td>${duration}</td>
@@ -231,9 +258,10 @@ export function mountBridgePanel(): void {
     const tr = eventsBody.querySelector<HTMLTableRowElement>(`tr[data-index="${record.index}"]`);
     if (!tr) return; // row was filtered out; will render correctly on next rebuild
     const cells = tr.querySelectorAll('td');
-    cells[2]!.className = `s-${record.status}`;
-    cells[2]!.textContent = record.status === 'ok' ? 'ok' : 'err';
-    cells[3]!.textContent = record.duration !== undefined ? `${record.duration}ms` : '—';
+    const statusLabel = record.status === 'ok' ? 'ok' : record.status === 'done' ? 'done' : 'err';
+    cells[3]!.className = `s-${record.status}`;
+    cells[3]!.textContent = statusLabel;
+    cells[4]!.textContent = record.duration !== undefined ? `${record.duration}ms` : '—';
     if (record.index === selectedIndex) showDetail(record);
   }
 
