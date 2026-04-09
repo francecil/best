@@ -160,6 +160,9 @@ export function mountBridgePanel(): void {
   // ─── Connection ────────────────────────────────────────────────────────────
   function connect() {
     const port = chrome.runtime.connect({ name: 'bridge:devtools' });
+    // Identify which tab this panel is inspecting so the service worker can
+    // route events to the correct panel instead of broadcasting to all.
+    port.postMessage({ type: 'devtools:init', tabId: chrome.devtools.inspectedWindow.tabId });
     port.onDisconnect.addListener(() => {
       setStatus(false);
       setTimeout(connect, 2000);
